@@ -10,13 +10,14 @@
  */
 
 const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
 const GObject = imports.gi.GObject;
 const Gir = imports.gi.GIRepository;
 const Mainloop = imports.mainloop;
 const Main = imports.ui.main;
 
 // http://daringfireball.net/2010/07/improved_regex_for_matching_urls
-const _balancedParens = '\\((?:[^\\s()<>]+|(?:\\(?:[^\\s()<>]+\\)))*\\)';
+const _balancedParens = '\\([^\\s()<>]+\\)';
 const _leadingJunk = '[\\s`(\\[{\'\\"<\u00AB\u201C\u2018]';
 const _notTrailingJunk = '[^\\s`!()\\[\\]{};:\'\\".,<>?\u00AB\u00BB\u201C\u201D\u2018\u2019]';
 
@@ -41,6 +42,20 @@ const _urlRegexp = new RegExp(
             _notTrailingJunk +                    // last non-junk char
         ')' +
     ')', 'gi');
+
+
+/**
+ * escapeRegExp:
+ * @str: (String) a string to escape
+ *
+ * Escapes a string for use within a regular expression.
+ *
+ * Returns: (String) the escaped string
+ */
+function escapeRegExp(str) {
+    // from: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+}
 
 /**
  * findUrls:
@@ -183,6 +198,47 @@ function spawnCommandLineAsync(command_line, callback, errback) {
     });
 }
 
+/**
+ * spawnCommandLineAsyncIO:
+ * @command: a command
+ * @callback (function): called on success or failure
+ * @opts (object): options: argv, flags, input
+ *
+ * Runs @command in the background. Callback has three arguments -
+ * stdout, stderr, and exitCode.
+ *
+ * Returns (object): a Gio.Subprocess instance
+ */
+function spawnCommandLineAsyncIO(command, callback, opts = {}) {
+    let {argv, flags, input} = opts;
+    if (!input) input = null;
+
+    let subprocess = new Gio.Subprocess({
+        argv: argv ? argv : ['bash', '-c', command],
+        flags: flags ? flags
+            : Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+    });
+    subprocess.init(null);
+    let cancellable = new Gio.Cancellable();
+
+    subprocess.communicate_utf8_async(input, cancellable, (obj, res) => {
+        let success, stdout, stderr, exitCode;
+        // This will throw on cancel with "Gio.IOErrorEnum: Operation was cancelled"
+        tryFn(() => [success, stdout, stderr] = obj.communicate_utf8_finish(res));
+        if (typeof callback === 'function' && !cancellable.is_cancelled()) {
+            if (stderr && stderr.indexOf('bash: ') > -1) {
+                stderr = stderr.replace(/bash: /, '');
+            }
+            exitCode = success ? subprocess.get_exit_status() : -1;
+            callback(stdout, stderr, exitCode);
+        }
+        subprocess.cancellable = null;
+    });
+    subprocess.cancellable = cancellable;
+
+    return subprocess;
+}
+
 function _handleSpawnError(command, err) {
     let title = _("Execution of '%s' failed:").format(command);
     Main.notifyError(title, err.message);
@@ -309,7 +365,7 @@ const _LATINISE_REGEX = {
     IJ: /\u0132/g,
     J: /[\u012E\u0134]/g,
     K: /\u0136/g,
-    L: /[\u0139\u013B\u013D\u0130F\u0141]/g,
+    L: /[\u0139\u013B\u013D\u013F\u0141]/g,
     N: /[\xD1\u0143\u0145\u0147\u014A]/g,
     O: /[\xD2-\xD6\xD8\u014C\u014E\u0150]/g,
     OE: /\u0152/g,
@@ -500,7 +556,7 @@ function tryFn(callback, errCallback) {
     try {
         return callback();
     } catch (e) {
-        if (typeof errCb === 'function') {
+        if (typeof errCallback === 'function') {
             return errCallback(e);
         }
     }
@@ -629,6 +685,25 @@ function unref(object, reserved = []) {
             }
         }
     }, 0);
+};
+
+// MIT © Petka Antonov, Benjamin Gruenbaum, John-David Dalton, Sindre Sorhus
+// https://github.com/sindresorhus/to-fast-properties
+let fastProto = null;
+const FastObject = function(o) {
+    if (fastProto !== null && typeof fastProto.property) {
+        const result = fastProto;
+        fastProto = FastObject.prototype = null;
+        return result;
+    }
+    fastProto = FastObject.prototype = o == null ? Object.create(null) : o;
+    return new FastObject;
+}
+FastObject();
+function toFastProperties(obj) {
+    each(obj, function(value) {
+        if (value && !Array.isArray(value)) FastObject(value);
+    });
 };
 
 const READWRITE = GObject.ParamFlags.READABLE | GObject.ParamFlags.WRITABLE;

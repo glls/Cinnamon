@@ -1,7 +1,7 @@
 const Clutter = imports.gi.Clutter;
 const Gio = imports.gi.Gio;
 const {SignalManager} = imports.misc.signalManager;
-const {each, findIndex, find, unref} = imports.misc.util;
+const {each, filter, findIndex, find, unref} = imports.misc.util;
 const {createStore} = imports.misc.state;
 
 const AppGroup = require('./appGroup');
@@ -49,7 +49,7 @@ class AppList {
         this.lastFocusedApp = null;
 
         // Connect all the signals
-        this.signals.connect(this.metaWorkspace, 'window-added', (...args) => this.windowAdded(...args));
+        this.signals.connect(global.screen, 'window-workspace-changed', (...args) => this.windowWorkspaceChanged(...args));
         this.signals.connect(this.metaWorkspace, 'window-removed', (...args) => this.windowRemoved(...args));
         this.on_orientation_changed(null, true);
     }
@@ -66,10 +66,21 @@ class AppList {
         this.refreshList();
     }
 
+    getWindowCount(appId) {
+        let windowCount = 0;
+        each(this.appList, function(appGroup) {
+            if (appGroup.groupState.appId !== appId) return;
+            windowCount += appGroup.groupState.metaWindows.length;
+        });
+        return windowCount;
+    }
+
     closeAllHoverMenus(cb) {
         for (let i = 0, len = this.appList.length; i < len; i++) {
-            if (this.appList[i].hoverMenu.isOpen) {
-                this.appList[i].hoverMenu.close();
+            let {hoverMenu, groupState} = this.appList[i];
+            if (hoverMenu && hoverMenu.isOpen) {
+                groupState.set({thumbnailMenuEntered: false});
+                hoverMenu.close(true);
             }
         }
         if (typeof cb === 'function') cb();
@@ -101,48 +112,50 @@ class AppList {
         setTimeout(() => this.calcAllWindowNumbers(), this.state.settings.showAppsOrderTimeout);
     }
 
-    cycleMenus() {
-        let refApp = 0;
-        if (!this.state.lastCycled && this.listState.lastFocusedApp) {
-            refApp = findIndex(this.appList, (app) => app.groupState.appId === this.listState.lastFocusedApp);
+    cycleMenus(r = 0) {
+        if (r > this.appList.length) {
+            this.state.set({lastCycled: -1});
+            return;
         }
-        if (this.state.lastCycled && this.appList[this.state.lastCycled]) {
-            this.appList[this.state.lastCycled].hoverMenu.close();
-            refApp = this.state.lastCycled + 1;
-        }
-        if (refApp === this.state.lastCycled) {
-            refApp = this.state.lastCycled + 1;
-        }
-        this.state.lastCycled = refApp;
-        if (refApp > this.appList.length - 1) {
-            refApp = 0;
-            this.state.lastCycled = 0;
-        }
-        this.state.set({lastCycled: this.state.lastCycled});
-        if (refApp > -1 && this.appList[refApp].groupState.metaWindows.length > 0) {
-            this.appList[refApp].hoverMenu.open();
-        } else {
-            this.cycleMenus();
-        }
-    }
 
-    updateSpacing() {
-        each(this.appList, function(appGroup) {
-            appGroup.setMargin();
-        });
-    }
+        let {lastCycled} = this.state;
+        this.lastCycledTime = Date.now();
 
-    // Gets a list of every app on the current workspace
-    getSpecialApps() {
-        this.specialApps = [];
-        let apps = Gio.app_info_get_all();
+        if (lastCycled < 0) {
+            lastCycled = findIndex(this.appList, (app) => {
+                return app.groupState.appId === this.listState.lastFocusedApp;
+            });
+        }
 
-        for (let i = 0, len = apps.length; i < len; i++) {
-            let wmClass = apps[i].get_startup_wm_class();
-            if (wmClass) {
-                let id = apps[i].get_id();
-                this.specialApps.push({id, wmClass});
+        if (lastCycled < 0 || lastCycled > this.appList.length - 1) {
+            lastCycled = 0;
+        }
+
+        let refApp = this.appList[lastCycled];
+
+        lastCycled++;
+        this.state.set({lastCycled});
+
+        if (refApp.groupState.metaWindows.length !== 0) { // open hoverMenu if app has windows
+            this.closeAllHoverMenus()
+
+            refApp.groupState.set({thumbnailMenuEntered: true});
+            if (!refApp.hoverMenu) {
+                refApp.initThumbnailMenu();
             }
+            refApp.hoverMenu.open(true);
+
+            let lastCycledTime = this.lastCycledTime;
+            setTimeout(() => {
+                if (lastCycledTime === this.lastCycledTime) {
+                    if (refApp.hoverMenu.shouldClose) { // do not close hoverMenu if user is using it
+                        refApp.hoverMenu.close();
+                    }
+                    this.state.set({lastCycled: -1});
+                }
+            }, 2000)
+        } else {
+            this.cycleMenus(r + 1);
         }
     }
 
@@ -152,25 +165,27 @@ class AppList {
             this.appList[i] = null;
         }
         this.appList = [];
-        this.getSpecialApps();
         this.loadFavorites();
         this.refreshApps();
     }
 
     loadFavorites() {
-        if (!this.state.settings.showPinned) {
-            return;
-        }
         const favorites = this.state.trigger('getFavorites');
         const appSystem = this.state.trigger('getAppSystem');
         for (let i = 0; i < favorites.length; i++) {
             let app = appSystem.lookup_app(favorites[i].id);
-            if (!app) {
-                app = appSystem.lookup_settings_app(favorites[i].id);
-            }
             if (!app) continue;
 
-            this.windowAdded(this.metaWorkspace, null, app, true);
+            let appWindows = filter(app.get_windows(), (metaWindow) => this.shouldWindowBeAdded(metaWindow));
+
+            if (appWindows.length === 0) {
+                this.windowAdded(this.metaWorkspace, null, app, true);
+                continue;
+            }
+
+            for (let i = 0; i < appWindows.length; i++) {
+                this.windowAdded(this.metaWorkspace, appWindows[i], app, true);
+            }
         }
     }
 
@@ -192,7 +207,7 @@ class AppList {
             if (appGroup.groupState.metaWindows) {
                 appGroup.onWindowDemandsAttention(window);
             }
-            if (appGroup.hoverMenu.isOpen) {
+            if (appGroup.hoverMenu && appGroup.hoverMenu.isOpen) {
                 each(appGroup.hoverMenu.appThumbnails, (thumbnail) => {
                     thumbnail.onWindowDemandsAttention(window);
                     return false;
@@ -206,33 +221,34 @@ class AppList {
             || metaWindow.is_on_all_workspaces()
             || metaWindow.get_workspace() === this.metaWorkspace)
         && !metaWindow.is_skip_taskbar()
-        && (!this.state.settings.listMonitorWindows
-            || this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) > -1);
+        && this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) > -1;
+    }
+
+    windowWorkspaceChanged(screen, metaWorkspace, metaWindow) {
+        this.windowAdded(metaWindow, metaWorkspace);
     }
 
     windowAdded(metaWorkspace, metaWindow, app, isFavoriteApp) {
         if (!this.state) return;
 
-        if (this.state.appletReady && this.state.settings.showAllWorkspaces && metaWindow && !metaWindow.__gwlInit__) {
-            metaWindow.__gwlInit__ = true;
+        if (metaWindow && !this.shouldWindowBeAdded(metaWindow)) return;
+
+        if (metaWindow
+            && this.state.appletReady
+            && this.state.settings.showAllWorkspaces
+            && !this.state.addingWindowToWorkspaces) {
+            this.state.addingWindowToWorkspaces = true;
             this.state.trigger('addWindowToAllWorkspaces', metaWindow, app, isFavoriteApp);
         }
         // Check to see if the window that was added already has an app group.
         // If it does, then we don't need to do anything.  If not, we need to
         // create an app group.
         if (!app) {
-            app = this.state.trigger('getAppFromWMClass', this.specialApps, metaWindow);
-        }
-        if (!app) {
-            let tracker = this.state.trigger('getTracker');
-            if (tracker) {
-                app = tracker.get_window_app(metaWindow);
-            }
+            app = this.state.trigger('getAppFromWindow', metaWindow);
         }
         if (!app
             || (!isFavoriteApp
                 && metaWindow
-                && this.state.settings.listMonitorWindows
                 && this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) === -1)) {
             return;
         }
@@ -243,21 +259,17 @@ class AppList {
             transientFavorite = false;
 
         each(this.appList, (appGroup, i) => {
-            let shouldReturn = false;
             if (app === appGroup.groupState.app) {
                 refApp = i;
             }
-            each(appGroup.groupState.metaWindows, (win, z) => {
-                if (win === metaWindow) {
-                    if (refApp === -1 || !this.state.settings.groupApps) {
-                        refApp = i;
-                    }
-                    refWindow = z;
-                    shouldReturn = true;
-                    return false;
+            let ref = appGroup.groupState.metaWindows.indexOf(metaWindow);
+            if (ref > -1) {
+                if (refApp === -1 || !this.state.settings.groupApps) {
+                    refApp = i;
                 }
-            });
-            if (shouldReturn) return false;
+                refWindow = ref;
+                return false;
+            }
         });
 
         if (!this.state.settings.groupApps && !isFavoriteApp) {
@@ -267,57 +279,30 @@ class AppList {
             if (refFav > -1) transientFavorite = true;
         }
 
-        let initApp = (metaWindows, window) => {
+        let initApp = () => {
             let appGroup = new AppGroup({
                 state: this.state,
                 listState: this.listState,
                 app,
                 isFavoriteApp,
                 metaWorkspace,
-                metaWindows,
                 metaWindow,
                 appId
             });
             this.actor.add_child(appGroup.actor);
             this.appList.push(appGroup);
-
-            if (this.state.settings.groupApps && metaWindows.length > 0) {
-                each(metaWindows, (win) => {
-                    appGroup.windowAdded(win, metaWindows);
-                });
-            } else {
-                appGroup.windowAdded(window);
-            }
+            appGroup.windowAdded(metaWindow);
         };
 
         if (refApp === -1) {
-            let _appWindows = app.get_windows();
-            let appWindows = [];
-
-            for (let i = 0; i < _appWindows.length; i++) {
-                if (this.shouldWindowBeAdded(_appWindows[i])) {
-                    appWindows.push(_appWindows[i]);
-                }
-            }
-
+            initApp(metaWindow);
+        } else if (metaWindow) {
             if (this.state.settings.groupApps) {
-                initApp(appWindows);
-            } else {
-                if (appWindows.length > 0) {
-                    each(appWindows, (win) => {
-                        initApp([win], win);
-                    });
-                } else {
-                    initApp([], null);
-                }
-            }
-        } else if (metaWindow && this.shouldWindowBeAdded(metaWindow)) {
-            if (this.state.settings.groupApps) {
-                this.appList[refApp].windowAdded(metaWindow, null);
+                this.appList[refApp].windowAdded(metaWindow);
             } else if (transientFavorite && this.appList[refApp].groupState.metaWindows.length === 0) {
-                this.appList[refApp].windowAdded(metaWindow, [metaWindow]);
+                this.appList[refApp].windowAdded(metaWindow);
             } else if (refWindow === -1) {
-                initApp([metaWindow], metaWindow);
+                initApp();
             }
         }
     }
@@ -344,25 +329,20 @@ class AppList {
         if (!this.state) return;
 
         if ((metaWindow.is_on_all_workspaces() || this.state.settings.showAllWorkspaces)
-            && !metaWindow.__gwlFinalize__) {
-            metaWindow.__gwlFinalize__ = true;
+            && !this.state.removingWindowFromWorkspaces) {
+            // Abort the remove if the window is just changing workspaces, window
+            // should always remain indexed on all workspaces while its mapped.
+            // if (!metaWindow.showing_on_its_workspace()) return;
+            this.state.removingWindowFromWorkspaces = true;
             this.state.trigger('removeWindowFromAllWorkspaces', metaWindow);
             return;
         }
 
-        let wmClass = metaWindow.get_wm_class(),
-            refApp = -1,
-            refWindow = -1,
-            windowCount = 0;
-
+        let refApp = -1, refWindow = -1;
         each(this.appList, (appGroup, i) => {
             let shouldReturn = false;
             each(appGroup.groupState.metaWindows, (win, z) => {
-                if (win.get_wm_class() === wmClass) {
-                    ++windowCount;
-                }
                 if (win === metaWindow) {
-                    ++windowCount;
                     refApp = i;
                     refWindow = z;
                     shouldReturn = this.state.settings.groupApps;
@@ -373,20 +353,25 @@ class AppList {
                 return false;
             }
         });
+
         if (refApp > -1) {
             this.appList[refApp].windowRemoved(metaWorkspace, metaWindow, refWindow, (appId, isFavoriteApp) => {
-                if (isFavoriteApp || (isFavoriteApp && !this.state.settings.groupApps && windowCount === 0)) {
-                    this.appList[refApp].groupState.set({groupReady: false});
+
+                isFavoriteApp = isFavoriteApp && (this.state.settings.groupApps || this.getWindowCount(appId) === 0);
+                if (isFavoriteApp) {
+                    this.appList[refApp].groupState.set({groupReady: false, lastFocused: null});
                     this.appList[refApp].actor.set_style_pseudo_class('closed');
                     this.appList[refApp].actor.remove_style_class_name('grouped-window-list-item-demands-attention');
+                    this.appList[refApp].setActiveStatus(false);
                     if (this.state.settings.titleDisplay > 1) {
-                        this.appList[refApp].hideLabel(true);
+                        this.appList[refApp].hideLabel();
                     }
                     return;
                 }
                 this.appList[refApp].destroy(true);
                 this.appList[refApp] = undefined;
                 this.appList.splice(refApp, 1);
+                this.refreshList();
             });
         }
     }

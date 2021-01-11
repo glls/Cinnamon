@@ -7,6 +7,7 @@
 #include <meta/window.h>
 #define GMENU_I_KNOW_THIS_IS_UNSTABLE
 #include <gmenu-tree.h>
+#include <gmenu-desktopappinfo.h>
 
 G_BEGIN_DECLS
 
@@ -37,16 +38,17 @@ GType cinnamon_app_get_type (void) G_GNUC_CONST;
 
 const char *cinnamon_app_get_id (CinnamonApp *app);
 GMenuTreeEntry *cinnamon_app_get_tree_entry (CinnamonApp *app);
-GDesktopAppInfo *cinnamon_app_get_app_info (CinnamonApp *app);
+GMenuDesktopAppInfo *cinnamon_app_get_app_info (CinnamonApp *app);
 ClutterActor *cinnamon_app_create_icon_texture (CinnamonApp *app,
                                                 int          size);
 ClutterActor *cinnamon_app_create_icon_texture_for_window (CinnamonApp   *app,
                                                            int            size,
                                                            MetaWindow    *for_window);
-ClutterActor *cinnamon_app_get_faded_icon (CinnamonApp *app, int size);
 const char *cinnamon_app_get_name (CinnamonApp *app);
 const char *cinnamon_app_get_description (CinnamonApp *app);
 const char *cinnamon_app_get_keywords (CinnamonApp *app);
+gboolean cinnamon_app_get_nodisplay (CinnamonApp *app);
+
 gboolean cinnamon_app_is_window_backed (CinnamonApp *app);
 
 void cinnamon_app_activate_window (CinnamonApp *app, MetaWindow *window, guint32 timestamp);
@@ -59,6 +61,8 @@ void cinnamon_app_activate_full (CinnamonApp      *app,
 
 void cinnamon_app_open_new_window (CinnamonApp *app,
                                 int       workspace);
+
+gboolean cinnamon_app_can_open_new_window (CinnamonApp *app);
 
 CinnamonAppState cinnamon_app_get_state (CinnamonApp *app);
 
@@ -79,9 +83,15 @@ gboolean cinnamon_app_launch (CinnamonApp     *app,
                            char        **startup_id,
                            GError      **error);
 
-int cinnamon_app_compare_by_name (CinnamonApp *app, CinnamonApp *other);
+gboolean cinnamon_app_launch_offloaded (CinnamonApp     *app,
+                           guint         timestamp,
+                           GList        *uris,
+                           int           workspace,
+                           char        **startup_id,
+                           GError      **error);
 
-int cinnamon_app_compare (CinnamonApp *app, CinnamonApp *other);
+gboolean cinnamon_app_get_is_flatpak (CinnamonApp *app);
+char * cinnamon_app_get_flatpak_app_id (CinnamonApp *app);
 
 G_END_DECLS
 

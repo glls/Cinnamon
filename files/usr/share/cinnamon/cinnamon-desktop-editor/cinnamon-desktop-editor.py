@@ -6,12 +6,13 @@ import gettext
 import glob
 from optparse import OptionParser
 import shutil
+import subprocess
+from setproctitle import setproctitle
 
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("CMenu", "3.0")
-gi.require_version("XApp", "1.0")
-from gi.repository import GLib, Gtk, Gio, CMenu, GdkPixbuf, XApp
+from gi.repository import GLib, Gtk, Gio, CMenu
 
 sys.path.insert(0, '/usr/share/cinnamon/cinnamon-menu-editor')
 from cme import util
@@ -23,7 +24,7 @@ import JsonSettingsWidgets
 gettext.install("cinnamon", "/usr/share/locale")
 # i18n for menu item
 
-_ = gettext.gettext
+#_ = gettext.gettext # bug !!! _ is already defined by gettext.install!
 home = os.path.expanduser("~")
 PANEL_LAUNCHER_PATH = os.path.join(home, ".cinnamon", "panel-launchers")
 
@@ -37,11 +38,10 @@ def escape_space(string):
 
 def ask(msg):
     dialog = Gtk.MessageDialog(None,
-                               Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                               Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL,
                                Gtk.MessageType.QUESTION,
                                Gtk.ButtonsType.YES_NO,
                                None)
-    dialog.set_default_size(400, 200)
     dialog.set_markup(msg)
     dialog.show_all()
     response = dialog.run()
@@ -57,6 +57,7 @@ class ItemEditor(object):
 
     def __init__(self, item_path=None, callback=None, destdir=None):
         self.builder = Gtk.Builder()
+        self.builder.set_translation_domain('cinnamon') # let it translate!
         self.builder.add_from_file(self.ui_file)
         self.callback = callback
         self.destdir = destdir
@@ -160,7 +161,9 @@ class ItemEditor(object):
                 f.write(contents)
             if need_exec:
                 os.chmod(self.item_path, 0o755)
-        except IOError:
+
+            subprocess.Popen(['update-desktop-database', util.getUserItemPath()], env=os.environ)
+        except IOError as e:
             if ask(_("Cannot create the launcher at this location.  Add to the desktop instead?")):
                 self.destdir = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DESKTOP)
                 self.save()
@@ -189,7 +192,7 @@ class LauncherEditor(ItemEditor):
     def resync_validity(self, *args):
         name_text = self.builder.get_object('name-entry').get_text().strip()
         exec_text = self.builder.get_object('exec-entry').get_text().strip()
-        name_valid = name_text is not ""
+        name_valid = name_text != ""
         exec_valid = self.validate_exec_line(exec_text)
         self.sync_widgets(name_valid, exec_valid)
 
@@ -220,8 +223,8 @@ class LauncherEditor(ItemEditor):
         chooser.destroy()
 
     def check_custom_path(self):
-        pass
-
+        if self.item_path:
+            self.item_path = os.path.join(util.getUserItemPath(), os.path.split(self.item_path)[1])
 
 class DirectoryEditor(ItemEditor):
     ui_file = '/usr/share/cinnamon/cinnamon-desktop-editor/directory-editor.ui'
@@ -231,7 +234,7 @@ class DirectoryEditor(ItemEditor):
 
     def resync_validity(self, *args):
         name_text = self.builder.get_object('name-entry').get_text().strip()
-        valid = (name_text is not "")
+        valid = (name_text != "")
         self.builder.get_object('ok').set_sensitive(valid)
 
     def load(self):
@@ -247,8 +250,7 @@ class DirectoryEditor(ItemEditor):
                     Type="Directory")
 
     def check_custom_path(self):
-        pass
-
+        self.item_path = os.path.join(util.getUserDirectoryPath(), os.path.split(self.item_path)[1])
 
 class CinnamonLauncherEditor(ItemEditor):
     ui_file = '/usr/share/cinnamon/cinnamon-desktop-editor/launcher-editor.ui'
@@ -277,7 +279,7 @@ class CinnamonLauncherEditor(ItemEditor):
     def resync_validity(self, *args):
         name_text = self.builder.get_object('name-entry').get_text().strip()
         exec_text = self.builder.get_object('exec-entry').get_text().strip()
-        name_valid = name_text is not ""
+        name_valid = name_text != ""
         exec_valid = self.validate_exec_line(exec_text)
         self.sync_widgets(name_valid, exec_valid)
 
@@ -417,6 +419,7 @@ class Main:
         Gtk.main_quit()
 
 if __name__ == "__main__":
+    setproctitle("cinnamon-desktop-editor")
     Gtk.Window.set_default_icon_name(DEFAULT_ICON_NAME)
     Main()
     Gtk.main()

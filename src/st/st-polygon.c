@@ -180,6 +180,8 @@ st_polygon_paint (ClutterActor *self)
     StPolygonPrivate *priv = area->priv;
     if (priv->debug) {
         gfloat coords[8];
+        CoglPath *selection_path;
+
         cogl_set_source_color4f (.50,
                                  .50,
                                  .50,
@@ -194,7 +196,7 @@ st_polygon_paint (ClutterActor *self)
         coords[6] = priv->urc_x;
         coords[7] = priv->urc_y;
 
-        CoglPath *selection_path = cogl_path_new();
+        selection_path = cogl_path_new();
         cogl_path_polygon (selection_path, (float *)coords, 4);
         cogl_path_fill (selection_path);
         cogl_object_unref (selection_path);
@@ -206,12 +208,16 @@ static void
 st_polygon_pick (ClutterActor       *self,
                  const ClutterColor *pick_color)
 {
-    StPolygon *area = ST_POLYGON (self);
-    StPolygonPrivate *priv = area->priv;
+    CoglPath *selection_path;
     gfloat coords[8];
+    StPolygon *area;
+    StPolygonPrivate *priv;
 
     if (!clutter_actor_should_pick_paint (self))
         return;
+
+    area = ST_POLYGON (self);
+    priv = area->priv;
 
     coords[0] = priv->ulc_x;
     coords[1] = priv->ulc_y;
@@ -227,7 +233,7 @@ st_polygon_pick (ClutterActor       *self,
                               pick_color->blue,
                               pick_color->alpha);
 
-    CoglPath *selection_path = cogl_path_new();
+    selection_path = cogl_path_new();
     cogl_path_polygon (selection_path, (float *)coords, 4);
     cogl_path_fill (selection_path);
     cogl_object_unref (selection_path);

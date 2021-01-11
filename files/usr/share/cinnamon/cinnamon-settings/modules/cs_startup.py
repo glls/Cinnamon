@@ -7,9 +7,10 @@ import shutil
 
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gio, Gtk, GObject, Gdk, GdkPixbuf, GLib, Pango
+from gi.repository import Gio, Gtk, Gdk, GdkPixbuf, GLib, Pango
 
-from GSettingsWidgets import *
+from SettingsWidgets import SidePage
+from xapp.GSettingsWidgets import *
 
 try:
     ENVIRON = os.environ['XDG_CURRENT_DESKTOP']
@@ -383,16 +384,6 @@ class AutostartBox(Gtk.Box):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         frame.add(main_box)
 
-        toolbar = Gtk.Toolbar.new()
-        Gtk.StyleContext.add_class(Gtk.Widget.get_style_context(toolbar), "cs-header")
-        label = Gtk.Label()
-        markup = GLib.markup_escape_text(title)
-        label.set_markup("<b>{}</b>".format(markup))
-        title_holder = Gtk.ToolItem()
-        title_holder.add(label)
-        toolbar.add(title_holder)
-        main_box.add(toolbar)
-
         scw = Gtk.ScrolledWindow()
         scw.expand = True
         scw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -411,6 +402,7 @@ class AutostartBox(Gtk.Box):
         self.list_box.set_header_func(list_header_func, None)
         self.list_box.connect("row-selected", self.on_row_selected)
         self.list_box.connect("row-activated", self.on_row_activated)
+        self.list_box.set_focus_vadjustment(scw.get_vadjustment())
         self.box.add(self.list_box)
 
         button_toolbar = Gtk.Toolbar.new()
@@ -569,6 +561,8 @@ class AutostartBox(Gtk.Box):
             self.add_row(row)
             row.show_all()
 
+            self.select_new_row(row)
+
     def on_add_app(self, popup):
         app_dialog = AppChooserDialog()
         app_dialog.set_transient_for(self.list_box.get_toplevel())
@@ -602,7 +596,20 @@ class AutostartBox(Gtk.Box):
             self.add_row(row)
             row.show_all()
 
+            self.select_new_row(row)
+
         app_dialog.destroy()
+
+    def select_new_row(self, row):
+        # try to make sure the grab_focus() runs later, after the row has been allocated
+        # and sorted, otherwise the grab won't work.
+        GLib.idle_add(self.on_row_added_idle, row, priority=GLib.PRIORITY_LOW)
+
+    def on_row_added_idle(self, row):
+        self.list_box.select_row(row)
+        row.grab_focus()
+
+        return GLib.SOURCE_REMOVE
 
     def find_free_basename(self, suggested_name):
         if suggested_name.endswith(".desktop"):
@@ -672,6 +679,10 @@ class AutostartRow(Gtk.ListBoxRow):
                 img = Gtk.Image.new_from_icon_name(DEFAULT_ICON, Gtk.IconSize.LARGE_TOOLBAR)
         else:
             img = Gtk.Image.new_from_icon_name(DEFAULT_ICON, Gtk.IconSize.LARGE_TOOLBAR)
+
+        valid, w, h = Gtk.icon_size_lookup(Gtk.IconSize.LARGE_TOOLBAR)
+        img.set_pixel_size(w)
+
         grid.attach(img, 0, 0, 1, 1)
 
         self.desc_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

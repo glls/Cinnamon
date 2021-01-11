@@ -4,7 +4,8 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gdk, GLib
 
-from GSettingsWidgets import *
+from SettingsWidgets import SidePage
+from xapp.GSettingsWidgets import *
 
 
 class Module:
@@ -31,6 +32,9 @@ class Module:
             settings = page.add_section(_("General"))
 
             switch = GSettingsSwitch(_("Left handed (mouse buttons inverted)"), "org.cinnamon.settings-daemon.peripherals.mouse", "left-handed")
+            settings.add_row(switch)
+
+            switch = GSettingsSwitch(_("Reverse scrolling direction"), "org.cinnamon.settings-daemon.peripherals.mouse", "natural-scroll")
             settings.add_row(switch)
 
             switch = GSettingsSwitch(_("Show position of pointer when the Control key is pressed"), "org.cinnamon.settings-daemon.peripherals.mouse", "locate-pointer")
@@ -85,10 +89,13 @@ class Module:
             revealer = SettingsRevealer("org.cinnamon.settings-daemon.peripherals.touchpad", "touchpad-enabled")
             page.pack_start(revealer, False, True, 0)
 
-            settings = SettingsBox(_("General"))
+            settings = SettingsSection(_("General"))
             revealer.add(settings)
 
             switch = GSettingsSwitch(_("Tap to click"), "org.cinnamon.settings-daemon.peripherals.touchpad", "tap-to-click")
+            settings.add_row(switch)
+
+            switch = GSettingsSwitch(_("Disable touchpad when a mouse is attached"), "org.cinnamon.settings-daemon.peripherals.touchpad", "disable-with-external-mouse")
             settings.add_row(switch)
 
             switch = GSettingsSwitch(_("Disable touchpad while typing"), "org.cinnamon.settings-daemon.peripherals.touchpad", "disable-while-typing")
@@ -99,7 +106,7 @@ class Module:
             combo = GSettingsComboBox(_("Click actions"), "org.cinnamon.settings-daemon.peripherals.touchpad", "clickpad-click", clickpad_list, valtype=int)
             settings.add_row(combo)
 
-            settings = SettingsBox(_("Scrolling"))
+            settings = SettingsSection(_("Scrolling"))
             revealer.add(settings)
 
             switch = GSettingsSwitch(_("Reverse scrolling direction"), "org.cinnamon.settings-daemon.peripherals.touchpad", "natural-scroll")
@@ -111,7 +118,7 @@ class Module:
             switch = GSettingsSwitch(_("Horizontal scrolling"), "org.cinnamon.settings-daemon.peripherals.touchpad", "horizontal-scrolling")
             settings.add_row(switch)
 
-            settings = SettingsBox(_("Pointer speed"))
+            settings = SettingsSection(_("Pointer speed"))
             revealer.add(settings)
 
             switch = GSettingsSwitch(_("Custom Acceleration"), "org.cinnamon.settings-daemon.peripherals.touchpad", "custom-acceleration")

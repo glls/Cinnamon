@@ -1,20 +1,21 @@
 #!/usr/bin/python3
 
 try:
-    import gettext
     from gi.repository import Gio, Gtk, GObject, Gdk, GdkPixbuf, GLib
     import tempfile
     import os
     import sys
     import zipfile
     import shutil
-    import cgi
+    import html
     import subprocess
     import threading
     import time
     import dbus
     from PIL import Image
     import datetime
+    import proxygsettings
+    import time
 except Exception as detail:
     print(detail)
     sys.exit(1)
@@ -166,13 +167,10 @@ class Spice_Harvester(GObject.Object):
 
         if self.themes:
             self.install_folder = '%s/.themes/' % (home)
-            self.spices_directories = (self.install_folder, '%s/.themes/' % (home))
+            self.spices_directories = (self.install_folder, )
         else:
             self.install_folder = '%s/.local/share/cinnamon/%ss/' % (home, self.collection_type)
-            if self.collection_type == 'extension':
-                self.spices_directories = (self.install_folder, )
-            else:
-                self.spices_directories = ('/usr/share/cinnamon/%ss/' % self.collection_type, self.install_folder)
+            self.spices_directories = ('/usr/share/cinnamon/%ss/' % self.collection_type, self.install_folder)
 
         self._load_metadata()
 
@@ -360,6 +358,9 @@ class Spice_Harvester(GObject.Object):
             self._directory_changed()
 
     def _download(self, out_file, url, binary=True):
+        timestamp = round(time.time())
+        url = "%s?time=%d" % (url, timestamp)
+        print("Downloading from %s" % url)
         try:
             open_args = 'wb' if binary else 'w'
             with open(out_file, open_args) as outfd:
@@ -385,7 +386,12 @@ class Spice_Harvester(GObject.Object):
         parsed_url = urlparse(url)
         host = parsed_url.netloc
         try:
-            connection = HTTPSConnection(host, timeout=15)
+            proxy = proxygsettings.get_proxy_settings()
+            if proxy and proxy.get('https'):
+                connection = HTTPSConnection(proxy.get('https'), timeout=15)
+                connection.set_tunnel(host)
+            else:
+                connection = HTTPSConnection(host, timeout=15)
             headers = { "Accept-Encoding": "identity", "Host": host, "User-Agent": "Python/3" }
             connection.request("GET", parsed_url.path, headers=headers)
             urlobj = connection.getresponse()
@@ -446,7 +452,7 @@ class Spice_Harvester(GObject.Object):
             return False
 
         try:
-            return self.meta_map[uuid]["last-edited"] < self.index_cache[uuid]["last_edited"]
+            return int(self.meta_map[uuid]["last-edited"]) < self.index_cache[uuid]["last_edited"]
         except Exception as e:
             return False
 
@@ -456,7 +462,8 @@ class Spice_Harvester(GObject.Object):
         if not self.themes:
             enabled_list = self.settings.get_strv(self.enabled_key)
             for item in enabled_list:
-                if uuid in item:
+                item = item.replace("!", "")
+                if uuid in item.split(":"):
                     enabled_count += 1
         elif self.settings.get_string(self.enabled_key) == uuid:
             enabled_count = 1
@@ -726,7 +733,7 @@ class Spice_Harvester(GObject.Object):
         markup = msg
         if detail is not None:
             markup += _("\n\nDetails:  %s") % (str(detail))
-        esc = cgi.escape(markup)
+        esc = html.escape(markup)
         dialog.set_markup(esc)
         dialog.show_all()
         response = dialog.run()
@@ -774,7 +781,14 @@ class Spice_Harvester(GObject.Object):
         enabled_extensions = self.settings.get_strv(self.enabled_key)
         new_list = []
         for enabled_extension in enabled_extensions:
-            if uuid not in enabled_extension:
+            if self.collection_type == 'applet':
+                enabled_uuid = enabled_extension.split(':')[3].strip('!')
+            elif self.collection_type == 'desklet':
+                enabled_uuid = enabled_extension.split(':')[0].strip('!')
+            else:
+                enabled_uuid = enabled_extension
+
+            if enabled_uuid != uuid:
                 new_list.append(enabled_extension)
         self.settings.set_strv(self.enabled_key, new_list)
 

@@ -6,6 +6,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 import random
 import os, locale
 from xml.etree import ElementTree
+from setproctitle import setproctitle
 
 SLIDESHOW_DBUS_NAME = "org.Cinnamon.Slideshow"
 SLIDESHOW_DBUS_PATH = "/org/Cinnamon/Slideshow"
@@ -117,7 +118,7 @@ class CinnamonSlideshow(dbus.service.Object):
         def on_next_file_complete(obj, res, user_data=all_files):
             files = obj.next_files_finish(res)
             file_list = all_files
-            if len(files) is not 0:
+            if len(files) != 0:
                 file_list = file_list.extend(files)
                 enumerator.next_files_async(100, GLib.PRIORITY_LOW, None, on_next_file_complete, None)
             else:
@@ -308,6 +309,7 @@ class CinnamonSlideshow(dbus.service.Object):
 ###############
 
 if __name__ == "__main__":
+    setproctitle("cinnamon-slideshow")
     DBusGMainLoop(set_as_default=True)
 
     sessionBus = dbus.SessionBus ()

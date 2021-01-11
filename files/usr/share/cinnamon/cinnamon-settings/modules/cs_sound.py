@@ -3,8 +3,9 @@
 import gi
 gi.require_version('Cvc', '1.0')
 gi.require_version('Gtk', '3.0')
-from gi.repository import GLib, Gtk, Gdk, Cvc, GdkPixbuf, Gio
-from GSettingsWidgets import *
+from gi.repository import Gtk, Cvc, GdkPixbuf, Gio
+from SettingsWidgets import SidePage, GSettingsSoundFileChooser
+from xapp.GSettingsWidgets import *
 import dbus
 
 CINNAMON_SOUNDS = "org.cinnamon.sounds"
@@ -50,6 +51,13 @@ class SoundBox(Gtk.Box):
     def __init__(self, title):
         Gtk.Box.__init__(self)
         self.set_orientation(Gtk.Orientation.VERTICAL)
+        self.set_spacing(5)
+
+        label = Gtk.Label()
+        label.set_markup("<b>%s</b>" % title)
+        label.set_xalign(0.0)
+        self.add(label)
+
         frame = Gtk.Frame()
         frame.set_shadow_type(Gtk.ShadowType.IN)
         frame_style = frame.get_style_context()
@@ -59,17 +67,9 @@ class SoundBox(Gtk.Box):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         frame.add(main_box)
 
-        toolbar = Gtk.Toolbar.new()
-        Gtk.StyleContext.add_class(Gtk.Widget.get_style_context(toolbar), "cs-header")
-        label = Gtk.Label()
-        label.set_markup("<b>%s</b>" % title)
-        title_holder = Gtk.ToolItem()
-        title_holder.add(label)
-        toolbar.add(title_holder)
-        main_box.add(toolbar)
-
         scw = Gtk.ScrolledWindow()
         scw.expand = True
+        scw.set_min_content_height (450)
         scw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scw.set_shadow_type(Gtk.ShadowType.NONE)
         main_box.pack_start(scw, True, True, 0)
@@ -410,7 +410,6 @@ class Effect(GSettingsSoundFileChooser):
         sizeGroup.add_widget(self.content_widget)
 
         self.settings.bind(self.enabled_key, self.enabled_switch, "active", Gio.SettingsBindFlags.DEFAULT)
-        self.settings.bind(self.enabled_key, self.content_widget, "sensitive", Gio.SettingsBindFlags.DEFAULT)
 
 class SoundTest(Gtk.Dialog):
     def __init__(self, parent, stream):
@@ -490,7 +489,7 @@ class Module:
     comment = _("Manage sound settings")
 
     def __init__(self, content_box):
-        keywords = _("sound, media, music, speakers, audio")
+        keywords = _("sound, media, music, speakers, audio, microphone, headphone")
         self.sidePage = SidePage(_("Sound"), "cs-sound", keywords, content_box, module=self)
         self.sound_settings = Gio.Settings(CINNAMON_DESKTOP_SOUNDS)
 
@@ -560,11 +559,11 @@ class Module:
 
         inputBox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         self.inputSelector = self.buildDeviceSelect("input", self.inputDeviceList)
-        deviceSection = SettingsBox("Device")
+        deviceSection = SettingsSection("Device")
         inputBox.pack_start(deviceSection, False, False, 0)
         deviceSection.add_row(self.inputSelector)
 
-        devSettings = SettingsBox(_("Device settings"))
+        devSettings = SettingsSection(_("Device settings"))
         inputBox.pack_start(devSettings, False, False, 0)
 
         sizeGroup = Gtk.SizeGroup.new(Gtk.SizeGroupMode.HORIZONTAL)
@@ -678,11 +677,11 @@ class Module:
             return
 
         model = view.get_model()
-        newDevice = model.get_value(model.get_iter(selected[0]), 3)
-        id = getattr(self.controller, "lookup_"+type+"_id")(newDevice)
-        if id != None and id != getattr(self, type+"Id"):
-            getattr(self.controller, "change_"+type)(id)
-            self.profile.setDevice(id)
+        newDeviceId = model.get_value(model.get_iter(selected[0]), 3)
+        newDevice = getattr(self.controller, "lookup_"+type+"_id")(newDeviceId)
+        if newDevice != None and newDeviceId != getattr(self, type+"Id"):
+            getattr(self.controller, "change_"+type)(newDevice)
+            self.profile.setDevice(newDevice)
 
     def deviceAdded(self, c, id, type):
         device = getattr(self.controller, "lookup_"+type+"_id")(id)

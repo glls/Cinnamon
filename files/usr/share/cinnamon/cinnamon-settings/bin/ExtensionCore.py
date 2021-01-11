@@ -1,22 +1,19 @@
 #!/usr/bin/python3
 
-import sys
 import os
 import re
-import json
-import cgi
+import html
 import subprocess
 import gettext
 from html.parser import HTMLParser
 import html.entities as entities
 
-import dbus
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gio, Gtk, GObject, Gdk, GdkPixbuf, Pango, GLib
+from gi.repository import Gio, Gtk, GdkPixbuf, GLib
 
-from SettingsWidgets import SidePage, SettingsStack, SettingsPage, SettingsWidget, SettingsLabel
-from Spices import Spice_Harvester, ThreadedTaskManager
+from xapp.SettingsWidgets import SettingsPage, SettingsWidget, SettingsLabel
+from Spices import ThreadedTaskManager
 
 home = os.path.expanduser('~')
 
@@ -33,6 +30,9 @@ ROW_SIZE = 32
 UNSAFE_ITEMS = ['spawn_sync', 'spawn_command_line_sync', 'GTop', 'get_file_contents_utf8_sync']
 
 curr_ver = subprocess.check_output(['cinnamon', '--version']).decode("utf-8").splitlines()[0].split(' ')[1]
+curr_ver_elements = curr_ver.split(".")
+curr_ver_major = int(curr_ver_elements[0])
+curr_ver_minor = int(curr_ver_elements[1])
 
 def find_extension_subdir(directory):
     largest = ['0']
@@ -94,13 +94,23 @@ def show_prompt(msg, window=None):
                                destroy_with_parent = True,
                                message_type = Gtk.MessageType.QUESTION,
                                buttons = Gtk.ButtonsType.YES_NO)
-    dialog.set_default_size(400, 200)
-    esc = cgi.escape(msg)
+    esc = html.escape(msg)
     dialog.set_markup(esc)
     dialog.show_all()
     response = dialog.run()
     dialog.destroy()
     return response == Gtk.ResponseType.YES
+
+def show_message(msg, window=None):
+    dialog = Gtk.MessageDialog(transient_for = window,
+                               destroy_with_parent = True,
+                               message_type = Gtk.MessageType.ERROR,
+                               buttons = Gtk.ButtonsType.OK)
+    esc = html.escape(msg)
+    dialog.set_markup(esc)
+    dialog.show_all()
+    dialog.run()
+    dialog.destroy()
 
 background_work_queue = ThreadedTaskManager(5)
 
@@ -162,8 +172,8 @@ class ManageSpicesRow(Gtk.ListBoxRow):
         except (KeyError, ValueError):
             last_edited = -1
 
-        if 'multiversion' in self.metadata and self.metadata['multiversion']:
-            self.metadata['path'] = find_extension_subdir(self.metadata['path'])
+        # Check for the right version subdir (if the spice is multi-versioned, it won't necessarily be in its root directory)
+        self.metadata['path'] = find_extension_subdir(self.metadata['path'])
 
         # "hide-configuration": true in metadata trumps all
         # otherwise we check for "external-configuration-app" in metadata and settings-schema.json in settings
@@ -256,11 +266,30 @@ class ManageSpicesRow(Gtk.ListBoxRow):
         if self.writable:
             self.scan_extension_for_danger(self.metadata['path'])
 
-        self.version_supported = False
+        self.version_supported = self.is_compatible_with_cinnamon_version()
+
+    def is_compatible_with_cinnamon_version(self):
         try:
-            self.version_supported = curr_ver in self.metadata['cinnamon-version'] or curr_ver.rsplit('.', 1)[0] in self.metadata['cinnamon-version']
-        except (KeyError, ValueError):
-            self.version_supported = True # Don't check version if not specified.
+            # Treat "cinnamon-version" as a list of minimum required versions
+            # if any version in there is lower than our Cinnamon version, then the spice is compatible.
+            for version in self.metadata['cinnamon-version']:
+                elements = version.split(".")
+                major = int(elements[0])
+                minor = int(elements[1])
+                if curr_ver_major > major or (curr_ver_major == major and curr_ver_minor >= minor):
+                    # The version is OK, check that we can find the right .js file in the appropriate subdir
+                    path = os.path.join(self.metadata['path'], self.extension_type + ".js")
+                    if os.path.exists(path):
+                        return True
+                    else:
+                        print ("The %s %s is not properly structured. Path not found: '%s'" % (self.uuid, self.extension_type, path))
+                        return False
+                    return True
+            print ("The %s %s is not compatible with this version of Cinnamon." % (self.uuid, self.extension_type))
+            return False
+        except:
+            # If cinnamon-version is not specified or if the version check goes wrong, assume compatibility
+            return True
 
     def set_can_config(self, *args):
         if not self.has_config:
@@ -348,7 +377,7 @@ class ManageSpicesRow(Gtk.ListBoxRow):
 
 class ManageSpicesPage(SettingsPage):
     def __init__(self, parent, collection_type, spices, window):
-        super(ManageSpicesPage, self).__init__()
+        super().__init__()
         self.expand = True
         self.set_spacing(0)
         self.set_margin_top(5)
@@ -378,23 +407,6 @@ class ManageSpicesPage(SettingsPage):
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         frame.add(main_box)
-
-        toolbar = Gtk.Toolbar.new()
-        Gtk.StyleContext.add_class(Gtk.Widget.get_style_context(toolbar), 'cs-header')
-        label = Gtk.Label()
-        if self.collection_type == 'applet':
-            markup = GLib.markup_escape_text(_("Installed applets"))
-        elif self.collection_type == 'desklet':
-            markup = GLib.markup_escape_text(_("Installed desklets"))
-        elif self.collection_type == 'extension':
-            markup = GLib.markup_escape_text(_("Installed extensions"))
-        elif self.collection_type == 'theme':
-            markup = GLib.markup_escape_text(_("Installed themes"))
-        label.set_markup('<b>{}</b>'.format(markup))
-        title_holder = Gtk.ToolItem()
-        title_holder.add(label)
-        toolbar.add(title_holder)
-        main_box.add(toolbar)
 
         scw = Gtk.ScrolledWindow()
         scw.expand = True
@@ -526,10 +538,8 @@ class ManageSpicesPage(SettingsPage):
 
     def enable_extension(self, uuid, name, version_check = True):
         if not version_check:
-            if not show_prompt(_("Extension %s is not compatible with current version of cinnamon. Using it may break your system. Load anyway?") % uuid, self.window):
-                return
-            else:
-                uuid = '!' + uuid
+            show_message(_("Extension %s is not compatible with your version of Cinnamon.") % uuid, self.window)
+            return
 
         self.enable(uuid)
 
@@ -562,13 +572,14 @@ class ManageSpicesPage(SettingsPage):
         elif self.collection_type == 'extension':
             msg = _("This will disable all active extensions. Are you sure you want to do this?")
         if show_prompt(msg, self.window):
+            sett = Gio.Settings.new('org.cinnamon')
             if self.collection_type != 'extension':
-                os.system(('gsettings reset org.cinnamon next-%s-id') % (self.collection_type))
-            os.system(('gsettings reset org.cinnamon enabled-%ss') % (self.collection_type))
+                sett.reset('next-%s-id' % self.collection_type)
+            sett.reset('enabled-%ss' % self.collection_type)
 
     def about(self, *args):
         row = self.list_box.get_selected_row()
-        self.spices.send_proxy_signal('OpenSpicesAbout', '(ss)', row.uuid, self.collection_type)
+        subprocess.Popen(['xlet-about-dialog', self.collection_type + 's', row.uuid])
 
     def load_extensions(self, *args):
         for row in self.extension_rows:
@@ -605,7 +616,7 @@ class ManageSpicesPage(SettingsPage):
 
 class DownloadSpicesRow(Gtk.ListBoxRow):
     def __init__(self, uuid, data, spices, size_groups):
-        super(DownloadSpicesRow, self).__init__()
+        super().__init__()
 
         self.uuid = uuid
         self.data = data
@@ -614,6 +625,8 @@ class DownloadSpicesRow(Gtk.ListBoxRow):
         self.description = data['description']
         self.score = data['score']
         self.timestamp = data['last_edited']
+
+        self.has_update = False
 
         self.status_ids = {}
 
@@ -668,6 +681,7 @@ class DownloadSpicesRow(Gtk.ListBoxRow):
             download_button.connect('clicked', self.download)
             download_button.set_tooltip_text(_("Install"))
         elif self.spices.get_has_update(uuid):
+            self.has_update = True
             download_button = Gtk.Button.new_from_icon_name('view-refresh-symbolic', 2)
             self.button_box.pack_start(download_button, False, False, 0)
             download_button.connect('clicked', self.download)
@@ -675,8 +689,6 @@ class DownloadSpicesRow(Gtk.ListBoxRow):
 
         if self.installed:
             self.add_status('installed', 'object-select-symbolic', _("Installed"))
-
-        self.show_all()
 
     def download(self, *args):
         self.spices.install(self.uuid)
@@ -689,7 +701,6 @@ class DownloadSpicesRow(Gtk.ListBoxRow):
         self.status_box.pack_end(icon, False, False, 0)
         self.status_ids[status_id] = icon
         icon.set_tooltip_text(tooltip_text)
-        icon.show()
 
     def remove_status(self, status_id):
         if status_id not in self.status_ids:
@@ -701,7 +712,7 @@ class DownloadSpicesRow(Gtk.ListBoxRow):
 
 class DownloadSpicesPage(SettingsPage):
     def __init__(self, parent, collection_type, spices, window):
-        super(DownloadSpicesPage, self).__init__()
+        super().__init__()
         self.expand = True
         self.set_spacing(0)
         self.set_margin_top(5)
@@ -732,6 +743,7 @@ class DownloadSpicesPage(SettingsPage):
         sort_types.append(['score', _("Popularity")])
         sort_types.append(['date', _("Date")])
         sort_types.append(['installed', _("Installed")])
+        sort_types.append(['update', _("Upgradable")])
         self.sort_combo.set_active(1) #Rating
         self.sort_combo.connect('changed', self.sort_changed)
         self.top_box.pack_start(self.sort_combo, False, False, 4)
@@ -752,22 +764,8 @@ class DownloadSpicesPage(SettingsPage):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         frame.add(main_box)
 
-        toolbar = Gtk.Toolbar.new()
-        Gtk.StyleContext.add_class(Gtk.Widget.get_style_context(toolbar), 'cs-header')
-        label = Gtk.Label()
-        if self.collection_type == 'applet':
-            markup = GLib.markup_escape_text(_("Available applets"))
-        elif self.collection_type == 'desklet':
-            markup = GLib.markup_escape_text(_("Available desklets"))
-        elif self.collection_type == 'extension':
-            markup = GLib.markup_escape_text(_("Available extensions"))
-        elif self.collection_type == 'theme':
-            markup = GLib.markup_escape_text(_("Available themes"))
-        label.set_markup('<b>{}</b>'.format(markup))
-        title_holder = Gtk.ToolItem()
-        title_holder.add(label)
-        toolbar.add(title_holder)
-        main_box.add(toolbar)
+        self.infobar_holder = Gtk.Frame(shadow_type=Gtk.ShadowType.NONE)
+        main_box.pack_start(self.infobar_holder, False, False, 0)
 
         scw = Gtk.ScrolledWindow()
         scw.expand = True
@@ -776,9 +774,6 @@ class DownloadSpicesPage(SettingsPage):
         main_box.pack_start(scw, True, True, 0)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         scw.add(self.box)
-
-        self.infobar_holder = Gtk.Frame(shadow_type=Gtk.ShadowType.NONE)
-        self.box.add(self.infobar_holder)
 
         self.list_box = Gtk.ListBox()
         self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -841,7 +836,6 @@ class DownloadSpicesPage(SettingsPage):
 
         self.spices.connect('cache-loaded', self.build_list)
         self.spices.connect('installed-changed', self.build_list)
-        self.build_list()
 
     def on_entry_refilter(self, widget, data=None):
         if self.search_entry.get_text() == '':
@@ -878,6 +872,16 @@ class DownloadSpicesPage(SettingsPage):
             else:
                 return 1
 
+        def sort_update(row1, row2):
+            if row1.has_update == row2.has_update:
+                if not row1.has_update:
+                    return row2.timestamp - row1.timestamp
+                return 0
+            elif row1.has_update:
+                return -1
+            else:
+                return 1
+
         sort_type = self.sort_combo.get_active_id()
         if sort_type == 'name':
             self.list_box.set_sort_func(sort_name)
@@ -885,8 +889,10 @@ class DownloadSpicesPage(SettingsPage):
             self.list_box.set_sort_func(sort_score)
         elif sort_type == 'date':
             self.list_box.set_sort_func(sort_date)
-        else:
+        elif sort_type == 'installed':
             self.list_box.set_sort_func(sort_installed)
+        else:
+            self.list_box.set_sort_func(sort_update)
 
     def on_row_selected(self, list_box, row):
         if row is None:
@@ -933,6 +939,7 @@ class DownloadSpicesPage(SettingsPage):
             msg_text = _("No updates available")
         self.update_all_button.set_tooltip_text(msg_text)
         self.refresh_button.set_sensitive(True)
+        self.list_box.show_all()
 
     def get_more_info(self, *args):
         extension_row = self.list_box.get_selected_row()
@@ -945,10 +952,39 @@ class DownloadSpicesPage(SettingsPage):
         GLib.idle_add(self.on_page_shown)
 
     def on_page_shown(self, *args):
+        if not self.extension_rows:
+            self.build_list()
+
         if not self.spices.processing_jobs:
             if (not self.spices.has_cache) or self.spices.get_cache_age() > 7:
-                prompt = _("Your cache is out of date. Would you like to update it now?")
-                if show_prompt(prompt, self.window):
-                    self.spices.refresh_cache()
+                self.on_cache_outdated()
 
+        self.search_entry.grab_focus()
+
+    def on_cache_outdated(self, *args):
+        infobar = self.infobar_holder.get_child()
+        if not infobar:
+            infobar = Gtk.InfoBar()
+            icon = Gtk.Image.new_from_icon_name("dialog-question-symbolic", Gtk.IconSize.LARGE_TOOLBAR)
+            label = Gtk.Label(_("Your cache is out of date. Would you like to update it now?"))
+            label.set_line_wrap(True)
+
+            infobar.set_message_type(Gtk.MessageType.QUESTION)
+            infobar.get_content_area().pack_start(icon, False, False, 12)
+            infobar.get_content_area().pack_start(label, False, False, 0)
+            infobar.add_button(_("Yes"), Gtk.ResponseType.YES)
+            infobar.add_button(_("No"), Gtk.ResponseType.NO)
+
+            infobar.connect('response', self._on_infobar_response)
+            self.infobar_holder.add(infobar)
+
+        self.infobar_holder.show_all()
+        infobar.set_revealed(True)
+
+    def _on_infobar_response(self, infobar: Gtk.InfoBar, response):
+        if response == Gtk.ResponseType.YES and not self.spices.processing_jobs:
+            self.spices.refresh_cache()
+            pass
+
+        infobar.set_revealed(False)
         self.search_entry.grab_focus()

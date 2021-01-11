@@ -105,6 +105,7 @@
         <listitem><code>type</code>: should be <code>soundfilechooser</code></listitem>
         <listitem><code>description</code>: String describing the setting</listitem>
         <listitem><code>default</code>: default icon path or icon name to use</listitem>
+        <listitem><code>event-sounds</code>: (optional) true or false, or leave off entirely. Unless this property is set to false, the file chooser will only allow wav and ogg/oga type files as these are the only types currently supported by cinnamon sound events. (New in Cinnamon 4.2)</listitem>
       </itemizedlist>
 
       <para>Provides a button which shows the currently selected file name and opens a file dialog when clicked. A preview button is also provided to allow the user to test the selected sound. Stores as a <code>string</code>.</para>
@@ -160,6 +161,18 @@
 
       <para>A button that opens a dialog that lets you select a date. The date is stored as three key/value pairs representing the numerical value for the day('d'), month('m'), and year('y').</para>
       <para>New in Cinnamon 3.2</para>
+
+    </sect3>
+    <sect3>
+      <title>timechooser</title>
+      <itemizedlist>
+        <listitem><code>type</code>: should be <code>timechooser</code></listitem>
+        <listitem><code>default</code>: default time - should be of the form <code>{h: '12', m: '0', s: '0'}</code></listitem>
+        <listitem><code>description</code>: String describing the setting</listitem>
+      </itemizedlist>
+
+      <para>A button that opens a dialog that lets you select a time. The time is stored as three key/value pairs representing the numerical value for the hour('h'), minute('m'), and second('s').</para>
+      <para>New in Cinnamon 4.2</para>
 
     </sect3>
     <sect3>
@@ -240,7 +253,7 @@
     "title" : "3rd section",
     "sections" : ["setting5", "setting6"]
   },
-  "section1" : {
+  "section4" : {
     "type" : "section",
     "title" : "4th section",
     "sections" : ["setting7", "setting8"]
@@ -305,6 +318,7 @@
         <listitem><code>description</code>: (optional) String to describe the setting</listitem>
         <listitem><code>columns</code>: Array of objects specifying the columns in the list widget</listitem>
         <listitem><code>default</code>: default value</listitem>
+        <listitem><code>show-buttons</code>: (optional) Whether to show the action buttons below the list (<code>true</code> by default)</listitem>
       </itemizedlist>
 
       <para>
@@ -315,6 +329,7 @@
           <listitem><code>type</code>: the data type for the column</listitem>
           <listitem><code>default</code>: (optional) a default value for the column when a new row is being created. This will only be used to auto-populate the corresponding widget when it is first generated in the add row dialog. If this property is omitted, the default will be determined by the widget.</listitem>
           <listitem><code>options</code>: (optional) A list of acceptable values for that column. Either an array or an object with key value pairs may be used. If an object is given, the key is displayed as the text of the widget, and must be a string; the value must match the data type of the column (ie. string, integer, boolean, etc).</listitem>
+          <listitem><code>align</code>: (optional) A number between 0 and 1 indicating how the value should be aligned with respect to the column in which it is displayed. 0 aligns to the left of the cell, 1 to the right, and 0.5 in the center. (New in Cinnamon 4.2)</listitem>
         </itemizedlist>
       </para>
       <para>
@@ -439,14 +454,21 @@
     <title>Accessing the settings window from command-line</title>
 
     <para>
-      You can access the settings with the following command:
+      You can access the settings with one of the following commands:
     </para>
     <informalexample>
       <programlisting>
 xlet-settings &lt;type&gt; &lt;uuid&gt; &lt;instanceid&gt;</programlisting>
     </informalexample>
+    <informalexample>
+      <programlisting>
+xlet-settings &lt;type&gt; &lt;uuid&gt; -i &lt;instanceid&gt; -t &lt;tabnumber&gt;</programlisting>
+    </informalexample>
     <para>
-      Where <code>type</code> is <code>applet</code>, <code>desklet</code> or <code>extension</code> depending on what type it is. The <code>instanceid</code> is optional.
+      Where <code>type</code> is <code>applet</code>, <code>desklet</code> or <code>extension</code> depending on what type it is. The <code>instanceid</code> is optional. The <code>tabnumber</code> is optional and designates the tab (or page) you want to access; the tabs are numbered from <code>0</code> to <code>number of tabs - 1</code>. 
+    </para>
+    <para>
+      The second command is new in Cinnamon 4.2.
     </para>
   </sect2>
 </chapter>

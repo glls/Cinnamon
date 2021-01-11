@@ -1,6 +1,9 @@
 #!/usr/bin/python3
 
-from GSettingsWidgets import *
+import os
+
+from SettingsWidgets import SidePage
+from xapp.GSettingsWidgets import *
 from gi.repository import *
 
 PREF_MEDIA_AUTORUN_NEVER = "autorun-never"
@@ -27,15 +30,16 @@ DEF_HEADING = 2
 preferred_app_defs = [
     # 1st mimetype is to let us find apps
     # 2nd mimetype is to set default handler for (so we handle all of that type, not just a specific format)
-    ( "inode/directory",         "inode/directory",            _("File Manager") ),
-    ( "x-scheme-handler/http",   "x-scheme-handler/http",      _("_Web") ),
-    ( "x-scheme-handler/mailto", "x-scheme-handler/mailto",    _("_Mail") ),
+    ( "inode/directory",         "inode/directory",          _("File Manager") ),
+    ( "x-scheme-handler/http",   "x-scheme-handler/http",    _("_Web") ),
+    ( "x-scheme-handler/mailto", "x-scheme-handler/mailto",  _("_Mail") ),
     ( "application/msword",      "application/msword",       _("Documents") ),
     ( "text/plain",              "text/plain",               _("Plain Text") ),
     ( "audio/x-vorbis+ogg",      "audio",                    _("M_usic") ),
     ( "video/x-ogm+ogg",         "video",                    _("_Video") ),
     ( "image/jpeg",              "image",                    _("_Photos") ),
-    ( "text/x-python",           "text/x-python",          _("Source Code") ),
+    ( "text/x-python",           "text/x-python",            _("Source Code") ),
+    ( "application/pdf",         "application/pdf",          _("PDF") ),
 ]
 
 mimetypes = {}
@@ -293,11 +297,19 @@ class DefaultCalculatorButton(Gtk.AppChooserButton):
             exec_val = Gio.DesktopAppInfo.get_string(self.this_item, "Exec")
             name_val = Gio.DesktopAppInfo.get_string(self.this_item, "Name")
             icon_val = Gio.DesktopAppInfo.get_string(self.this_item, "Icon")
+            comment_val = Gio.DesktopAppInfo.get_string(self.this_item, "Comment")
             #calculators don't have mime types, so we check for "Calculator" under the "Category" key in desktop files
-            if (cat_val is not None and "Calculator" in cat_val):
+            if (cat_val is not None and "Calculator" in cat_val) or \
+               (exec_val is not None and "alculator" in exec_val.lower()) or \
+               (name_val is not None and "alculator" in name_val.lower()) or \
+               (comment_val is not None and "alculator" in comment_val.lower()):
                 #this if statement makes sure remaining desktop file info is not empty
                 if (exec_val is not None and name_val is not None and icon_val is not None):
-                    self.append_custom_item(exec_val, name_val, Gio.ThemedIcon.new(icon_val))
+                    if os.path.exists(icon_val):
+                        icon = Gio.FileIcon.new(Gio.File.new_for_path(icon_val))
+                    else:
+                        icon = Gio.ThemedIcon.new(icon_val)
+                    self.append_custom_item(exec_val, name_val, icon)
                     self.active_items.append(exec_val)
                     if (self.key_value == exec_val):
                         self.set_active_custom_item(self.key_value)
@@ -434,6 +446,7 @@ class OtherTypeDialog(Gtk.Dialog):
         return True
 
     def getDescription(self, content_type):
+        description = None
         for d in other_defs:
             if content_type == d[DEF_CONTENT_TYPE]:
                 s = d[DEF_LABEL]
@@ -563,7 +576,7 @@ class Module:
             switch.fill_row()
             page.add(switch)
 
-            settings = SettingsBox(_("Removable media"))
+            settings = SettingsSection(_("Removable media"))
             switch.revealer.add(settings)
             page.pack_start(switch.revealer, False, False, 0)
 

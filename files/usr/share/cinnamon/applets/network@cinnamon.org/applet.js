@@ -11,6 +11,7 @@ const PopupMenu = imports.ui.popupMenu;
 const MessageTray = imports.ui.messageTray;
 const ModemManager = imports.misc.modemManager;
 const Util = imports.misc.util;
+const Settings = imports.ui.settings;
 
 const DEFAULT_PERIODIC_UPDATE_FREQUENCY_SECONDS = 10;
 const FAST_PERIODIC_UPDATE_FREQUENCY_SECONDS = 2;
@@ -1649,29 +1650,6 @@ NMMessageTraySource.prototype = {
     }
 };
 
-function RescanMenuItem() {
-    this._init.apply(this);
-}
-
-RescanMenuItem.prototype = {
-    __proto__: PopupMenu.PopupBaseMenuItem.prototype,
-
-    _init: function() {
-        PopupMenu.PopupBaseMenuItem.prototype._init.call(this);
-
-
-        this.label = new St.Label({ text: _("Rescan for wireless networks") });
-        this.addActor(this.label);
-        this.actor.label_actor = this.label;
-    },
-
-    activate: function(event) {
-
-        PopupMenu.PopupBaseMenuItem.prototype.activate.call(this, event, true);
-    }
-};
-
-
 function CinnamonNetworkApplet(metadata, orientation, panel_height, instance_id) {
     this._init(metadata, orientation, panel_height, instance_id);
 }
@@ -1694,11 +1672,19 @@ CinnamonNetworkApplet.prototype = {
             this._currentIconName = undefined;
             this._setIcon('network-offline');
 
+            this.settings = new Settings.AppletSettings(this, metadata.uuid, this.instance_id);
+            this.settings.bind("keyOpen", "keyOpen", this._setKeybinding);
+            this._setKeybinding();
+
             NM.Client.new_async(null, Lang.bind(this, this._clientGot));
         }
         catch (e) {
             global.logError(e);
         }
+    },
+
+    _setKeybinding() {
+        Main.keybindingManager.addHotKey("network-open-" + this.instance_id, this.keyOpen, Lang.bind(this, this._openMenu));
     },
 
     _clientGot: function(obj, result) {
@@ -1763,26 +1749,12 @@ CinnamonNetworkApplet.prototype = {
             this.menu.addMenuItem(this._devices.vpn.section);
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            this.rescan_item = new RescanMenuItem();
-
-            this.rescan_item.connect("activate", Lang.bind(this, function() {
-                let devices = this._devices.wireless.devices;
-
-                for (let i = 0; i < devices.length; i++) {
-                    devices[i].device.request_scan(null);
-                }
-            }));
-
-            this.menu.addMenuItem(this.rescan_item);
-
-            this.rescan_item.actor.hide();
-
             this.menu.addSettingsAction(_("Network Settings"), 'network');
             this.menu.addAction(_("Network Connections"), Lang.bind(this, function() {
 				Util.spawnCommandLine("nm-connection-editor");
             }));
 
-            this.menu.connect("open-state-changed", Lang.bind(this, this._updateForMenuToggle));
+            this.menu.connect("open-state-changed", Lang.bind(this, this._onMenuOpenStateChanged));
 
             this._periodicTimeoutId = 0;
             this._updateFrequencySeconds = DEFAULT_PERIODIC_UPDATE_FREQUENCY_SECONDS;
@@ -1841,6 +1813,10 @@ CinnamonNetworkApplet.prototype = {
     },
 
     on_applet_clicked: function(event) {
+        this.menu.toggle();
+    },
+
+    _openMenu: function () {
         this.menu.toggle();
     },
 
@@ -1905,21 +1881,6 @@ CinnamonNetworkApplet.prototype = {
                 item.updateForDevice(null);
             }
         }
-
-        let show_rescan = false;
-
-        if (this._devices.wireless.devices.length > 0) {
-            let devices = this._devices.wireless.devices;
-
-            for (let i = 0; i < devices.length; i++) {
-                if (devices[i]._client.wireless_get_enabled()) {
-                    show_rescan = true;
-                    break;
-                }
-            }
-        }
-
-        this.rescan_item.actor.visible = show_rescan;
     },
 
     _readDevices: function() {
@@ -2099,14 +2060,15 @@ CinnamonNetworkApplet.prototype = {
                 } else
                     a._primaryDevice = this._devices.vpn.device;
 
-                if (a._primaryDevice)
-                    a._primaryDevice.setActiveConnection(a);
-
                 if (a.state == NM.ActiveConnectionState.ACTIVATED &&
                     a._primaryDevice && a._primaryDevice._notification) {
                         a._primaryDevice._notification.destroy();
                         a._primaryDevice._notification = null;
                 }
+            }
+
+            if (a._primaryDevice) {
+                a._primaryDevice.setActiveConnection(a);
             }
         }
 
@@ -2364,13 +2326,37 @@ CinnamonNetworkApplet.prototype = {
         this._periodicTimeoutId = Mainloop.timeout_add_seconds(this._updateFrequencySeconds, Lang.bind(this, this._periodicUpdateIcon));
     },
 
-    _updateForMenuToggle: function() {
+    _rescanAccessPoints: function() {
+        try {
+            let devices = this._devices.wireless.devices;
+
+            for (let i = 0; i < devices.length; i++) {
+                if (devices[i]._client.wireless_get_enabled()) {
+                    devices[i].device.request_scan(null);
+                }
+            }
+        } catch (gerror) {
+            if (gerror.code == NM.DeviceError.NOTALLOWED) {
+                // NM only allows a rescan every 10 seconds
+                return;
+            } else {
+                log(gerror);
+            }
+        }
+    },
+
+    _onMenuOpenStateChanged: function(popup, open) {
         this._periodicUpdateIcon();
+
+        if (open) {
+            this._rescanAccessPoints();
+        }
     },
 
     on_applet_removed_from_panel: function() {
         Main.systrayManager.unregisterRole("network", this.metadata.uuid);
         Main.systrayManager.unregisterRole("nm-applet", this.metadata.uuid);
+        Main.keybindingManager.removeHotKey("network-open-" + this.instance_id);
         if (this._periodicTimeoutId){
             Mainloop.source_remove(this._periodicTimeoutId);
         }

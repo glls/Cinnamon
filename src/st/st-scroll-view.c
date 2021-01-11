@@ -166,6 +166,7 @@ st_scroll_view_get_property (GObject    *object,
       break;
     case PROP_AUTO_SCROLL:
       g_value_set_boolean (value, priv->auto_scroll);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
     }
@@ -364,6 +365,7 @@ st_scroll_view_set_property (GObject      *object,
     case PROP_AUTO_SCROLL:
       st_scroll_view_set_auto_scrolling (self,
                                          g_value_get_boolean (value));
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
     }
@@ -493,13 +495,14 @@ st_scroll_view_get_preferred_width (ClutterActor *actor,
                                     gfloat       *natural_width_p)
 {
   StScrollViewPrivate *priv = ST_SCROLL_VIEW (actor)->priv;
-  StThemeNode *theme_node = st_widget_get_theme_node (ST_WIDGET (actor));
+  StThemeNode *theme_node;
   gfloat min_width = 0, natural_width;
   gfloat child_min_width, child_natural_width;
 
   if (!priv->child)
     return;
 
+  theme_node = st_widget_get_theme_node (ST_WIDGET (actor));
   st_theme_node_adjust_for_height (theme_node, &for_height);
 
   clutter_actor_get_preferred_width (priv->child, -1,
@@ -548,7 +551,7 @@ st_scroll_view_get_preferred_height (ClutterActor *actor,
                                      gfloat       *natural_height_p)
 {
   StScrollViewPrivate *priv = ST_SCROLL_VIEW (actor)->priv;
-  StThemeNode *theme_node = st_widget_get_theme_node (ST_WIDGET (actor));
+  StThemeNode *theme_node = NULL;
   gboolean account_for_hscrollbar = FALSE;
   gfloat min_height = 0, natural_height;
   gfloat child_min_height, child_natural_height;
@@ -557,6 +560,8 @@ st_scroll_view_get_preferred_height (ClutterActor *actor,
 
   if (!priv->child)
     return;
+
+  theme_node = st_widget_get_theme_node (ST_WIDGET (actor));
 
   st_theme_node_adjust_for_width (theme_node, &for_width);
 

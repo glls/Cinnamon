@@ -4,6 +4,7 @@ import os
 import subprocess
 import gettext
 import pwd
+from setproctitle import setproctitle
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -25,6 +26,7 @@ class MainWindow:
         home_dir = pwd.getpwuid(user_id).pw_dir
 
         self.builder = Gtk.Builder()
+        self.builder.set_translation_domain('cinnamon') # let it translate!
         self.builder.add_from_file("/usr/share/cinnamon/cinnamon-screensaver-lock-dialog/cinnamon-screensaver-lock-dialog.ui")
 
         self.window = self.builder.get_object("main_dialog")
@@ -61,5 +63,6 @@ class MainWindow:
         Gtk.main_quit()
 
 if __name__ == "__main__":
+    setproctitle("cinnamon-screensaver-lock-dialog")
     MainWindow()
     Gtk.main()

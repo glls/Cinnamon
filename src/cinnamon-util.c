@@ -203,17 +203,23 @@ cinnamon_util_get_icon_for_uri_known_folders (const char *uri)
 
   path = g_filename_from_uri (uri, NULL, NULL);
 
-  len = strlen (path);
-  if (path[len] == '/')
-    path[len] = '\0';
+  if (!path)
+    return NULL;
 
   if (strcmp (path, "/") == 0)
     icon = "drive-harddisk";
-  else if (strcmp (path, g_get_home_dir ()) == 0)
-    icon = "user-home";
-  else if (strcmp (path, g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP))
-      == 0)
-    icon = "user-desktop";
+  else {
+    if (g_str_has_suffix (path, "/")) {
+      len = strlen (path);
+      path[len - 1] = '\0';
+    }
+
+    if (strcmp (path, g_get_home_dir ()) == 0)
+      icon = "user-home";
+    else if (strcmp (path, g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP))
+        == 0)
+      icon = "user-desktop";
+  }
 
   g_free (path);
 
@@ -497,20 +503,6 @@ cinnamon_util_get_transformed_allocation (ClutterActor    *actor,
   box->y1 = y_min;
   box->x2 = x_max;
   box->y2 = y_max;
-}
-
-char *
-cinnamon_util_normalize_and_casefold (const char *str)
-{
-  char *normalized, *result;
-
-  if (str == NULL)
-    return NULL;
-
-  normalized = g_utf8_normalize (str, -1, G_NORMALIZE_ALL);
-  result = g_utf8_casefold (normalized, -1);
-  g_free (normalized);
-  return result;
 }
 
 /**

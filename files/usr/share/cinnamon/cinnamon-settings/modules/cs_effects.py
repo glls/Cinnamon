@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
-from GSettingsWidgets import *
+from SettingsWidgets import SidePage
+from xapp.GSettingsWidgets import *
 from ChooserButtonWidgets import TweenChooserButton, EffectChooserButton
 
 EFFECT_SETS = {
@@ -60,7 +61,7 @@ SCHEMA = "org.cinnamon"
 DEP_PATH = "org.cinnamon/desktop-effects"
 KEY_TEMPLATE = "desktop-effects-%s-%s"
 
-class GSettingsTweenChooserButton(TweenChooserButton, CSGSettingsBackend):
+class GSettingsTweenChooserButton(TweenChooserButton, PXGSettingsBackend):
     def __init__(self, schema, key, dep_key):
         self.key = key
         self.bind_prop = "tween"
@@ -74,7 +75,7 @@ class GSettingsTweenChooserButton(TweenChooserButton, CSGSettingsBackend):
         super(GSettingsTweenChooserButton, self).__init__()
         self.bind_settings()
 
-class GSettingsEffectChooserButton(EffectChooserButton, CSGSettingsBackend):
+class GSettingsEffectChooserButton(EffectChooserButton, PXGSettingsBackend):
     def __init__(self, schema, key, dep_key, options):
         self.key = key
         self.bind_prop = "effect"
@@ -117,7 +118,7 @@ class Module:
 
             settings = page.add_section(_("Enable Effects"))
 
-            widget = GSettingsSwitch(_("Window effects"), "org.cinnamon", "desktop-effects")
+            widget = GSettingsSwitch(_("Window effects"), "org.cinnamon.muffin", "desktop-effects")
             settings.add_row(widget)
 
             widget = GSettingsSwitch(_("Effects on dialog boxes"), "org.cinnamon", "desktop-effects-on-dialogs")
@@ -135,10 +136,6 @@ class Module:
 
             widget = GSettingsSwitch(_("Session startup animation"), "org.cinnamon", "startup-animation")
             settings.add_row(widget)
-
-            if Gtk.get_major_version() == 3 and Gtk.get_minor_version() >= 16:
-                widget = GSettingsSwitch(_("Overlay scroll bars (logout required)"), "org.cinnamon.desktop.interface", "gtk-overlay-scrollbars")
-                settings.add_row(widget)
 
             self.schema.connect("changed::desktop-effects", self.on_desktop_effects_enabled_changed)
 
@@ -160,7 +157,7 @@ class Module:
             self.revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
             self.revealer.set_transition_duration(150)
             page.add(self.revealer)
-            settings = SettingsBox(_("Effect"))
+            settings = SettingsSection(_("Effect"))
             self.revealer.add(settings)
 
             self.size_group = Gtk.SizeGroup.new(Gtk.SizeGroupMode.HORIZONTAL)

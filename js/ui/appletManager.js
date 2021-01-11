@@ -4,6 +4,7 @@ const GLib = imports.gi.GLib;
 const Gio = imports.gi.Gio;
 const St = imports.gi.St;
 
+const Mainloop = imports.mainloop;
 const Main = imports.ui.main;
 const Applet = imports.ui.applet;
 const Extension = imports.ui.extension;
@@ -78,7 +79,7 @@ function getAppletDefinition(definition) {
 
 function filterDefinitionsByUUID(uuid) {
     return definitions.filter(function(definition) {
-        return definition.uuid === uuid;
+        return definition.real_uuid === uuid;
     })
 }
 
@@ -87,7 +88,7 @@ function finishExtensionLoad(extensionIndex) {
     // Add all applet instances for this extension
     let extension = Extension.extensions[extensionIndex];
     for (let i = 0; i < definitions.length; i++) {
-        if (definitions[i].uuid !== extension.uuid
+        if (definitions[i].real_uuid !== extension.uuid
             || definitions[i].applet != null) {
             continue;
         }
@@ -102,7 +103,7 @@ function finishExtensionLoad(extensionIndex) {
 function prepareExtensionUnload(extension, deleteConfig) {
     // Remove all applet instances for this extension
     for (var i = 0; i < definitions.length; i++) {
-        if (extension.uuid !== definitions[i].uuid) {
+        if (extension.uuid !== definitions[i].real_uuid) {
             continue;
         }
         removeAppletFromPanels(definitions[i], deleteConfig);
@@ -112,7 +113,7 @@ function prepareExtensionUnload(extension, deleteConfig) {
 // Callback for extension.js
 function prepareExtensionReload(extension) {
     for (var i = 0; i < definitions.length; i++) {
-        if (extension.uuid === definitions[i].uuid) {
+        if (extension.uuid === definitions[i].real_uuid) {
             let {applet, applet_id} = definitions[i];
             if (!applet) continue;
             global.log(`Reloading applet: ${extension.uuid}/${applet_id}`);
@@ -171,6 +172,7 @@ function createAppletDefinition(definition) {
             center,
             order,
             uuid: elements[3],
+            real_uuid: elements[3].replace("!", ""),
             applet_id: elements[4]
         };
 
@@ -250,8 +252,8 @@ function onEnabledAppletsChanged() {
     let unChangedApplets = [];
 
     for (let i = 0; i < definitions.length; i++) {
-        let {uuid, applet_id} = definitions[i];
-        let oldDefinition = queryCollection(oldDefinitions, {uuid, applet_id});
+        let {uuid, real_uuid, applet_id} = definitions[i];
+        let oldDefinition = queryCollection(oldDefinitions, {real_uuid, applet_id});
 
         let isEqualToOldDefinition = appletDefinitionsEqual(definitions[i], oldDefinition);
 
@@ -583,6 +585,9 @@ function createApplet(extension, appletDefinition, panel = null) {
         return null;
     }
 
+    //add applet style class uuid if we have one
+    _addAppletStyleClassUuid(applet, extension.meta)
+
     applet._uuid = extension.uuid;
     applet._meta = extension.meta;
     applet.instance_id = applet_id;
@@ -596,12 +601,31 @@ function createApplet(extension, appletDefinition, panel = null) {
     return applet;
 }
 
-function _removeAppletFromPanel(uuid, applet_id) {
-    let definition = queryCollection(definitions, {uuid, applet_id});
-    if (!definition) {
-        return false;
+function _addAppletStyleClassUuid(applet, metadata){
+    const appletClass = _generateAppletStyleClassUuid(metadata)
+    if(appletClass !== ''){
+        applet._addStyleClass(appletClass);
+        return true
     }
-    removeApplet(definition);
+    return false
+}
+
+function _generateAppletStyleClassUuid(metadata){
+    if(typeof metadata === 'object' && metadata !== null && typeof metadata.uuid === 'string' && metadata.uuid.trim() !== ''){
+        return metadata.uuid.toLowerCase().replace(/([^a-z0-9]+)/gi, '-')+'-applet';
+    }else{
+        return ''
+    }
+}
+
+function _removeAppletFromPanel(uuid, applet_id) {
+    Mainloop.idle_add(() => {
+        let real_uuid = uuid;
+        let definition = queryCollection(definitions, {real_uuid, applet_id});
+        if (definition)
+            removeApplet(definition);
+        return false;
+    });
 }
 
 function saveAppletsPositions() {

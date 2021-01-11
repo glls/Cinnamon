@@ -23,6 +23,7 @@ const Util = imports.misc.util;
 
 var SLIDER_SCROLL_STEP = 0.05; /* Slider scrolling step in % */
 var MENU_ANIMATION_TIME = 0.15; /* Seconds */
+var MENU_ANIMATION_OFFSET = 0.1;
 
 var PanelLoc = {
     top : 0,
@@ -156,7 +157,9 @@ var PopupBaseMenuItem = class PopupBaseMenuItem {
     _onKeyPressEvent(actor, event) {
         let symbol = event.get_key_symbol();
 
-        if (symbol == Clutter.KEY_space || symbol == Clutter.KEY_Return) {
+        if (symbol === Clutter.KEY_space ||
+            symbol === Clutter.KEY_Return ||
+            symbol === Clutter.KEY_KP_Enter) {
             this.activate(event);
             return true;
         }
@@ -480,6 +483,10 @@ var PopupMenuItem = class PopupMenuItem extends PopupBaseMenuItem {
         this.addActor(this.label);
         this.actor.label_actor = this.label;
     }
+
+    setLabel(label) {
+        this.label.set_text(label);
+    }
 }
 
 var PopupSeparatorMenuItem = class PopupSeparatorMenuItem extends PopupBaseMenuItem {
@@ -576,7 +583,7 @@ var PopupAlternatingMenuItem = class PopupAlternatingMenuItem extends PopupBaseM
 
         let key = event.get_key_symbol();
 
-        if (key == Clutter.KEY_Alt_L || key == Clutter.KEY_Alt_R)
+        if (key === Clutter.KEY_Alt_L || key === Clutter.KEY_Alt_R)
             this._updateStateFromModifiers();
 
         return false;
@@ -786,8 +793,8 @@ var PopupSliderMenuItem = class PopupSliderMenuItem extends PopupBaseMenuItem {
 
     _onKeyPressEvent (actor, event) {
         let key = event.get_key_symbol();
-        if (key == Clutter.KEY_Right || key == Clutter.KEY_Left) {
-            let delta = key == Clutter.KEY_Right ? 0.1 : -0.1;
+        if (key === Clutter.KEY_Right || key === Clutter.KEY_Left) {
+            let delta = key === Clutter.KEY_Right ? 0.1 : -0.1;
             this._value = Math.max(0, Math.min(this._value + delta, 1));
             this._slider.queue_repaint();
             this.emit('value-changed', this._value);
@@ -1988,7 +1995,10 @@ var PopupMenuBase = class PopupMenuBase {
     // menu, but that call will be a no-op since the menu already
     // has a relayout queued, so we won't get stuck in a loop.
     _menuQueueRelayout() {
-        this.box.get_children().forEach(actor => actor.queue_relayout());
+        let node = this.actor.peek_theme_node();
+        if (node && node.get_background_image()) {
+            Util.each(this.box.get_children(), (actor) => actor.queue_relayout());
+        }
     }
 
     addActor(actor) {
@@ -2226,10 +2236,12 @@ var PopupMenu = class PopupMenu extends PopupMenuBase {
         if (animate && global.settings.get_boolean("desktop-effects-on-menus")) {
             this.animating = true;
             this.actor.show();
+            this.actor.opacity = 0;
 
             let tweenParams = {
                 transition: "easeOutQuad",
                 time: MENU_ANIMATION_TIME,
+                opacity: 255,
                 onUpdate: dest => {
                     let clipY = 0;
                     let clipX = 0;
@@ -2280,9 +2292,9 @@ var PopupMenu = class PopupMenu extends PopupMenuBase {
                     yPos -= this.actor.margin_top;
                     tweenParams["onUpdateParams"] = [yPos];
                     if (this.sideFlipped) // Bottom
-                        this.actor.y = yPos + this.actor.height - this.actor.margin_top;
+                        this.actor.y = yPos + (this.actor.height * MENU_ANIMATION_OFFSET) - this.actor.margin_top;
                     else // Top
-                        this.actor.y = yPos - this.actor.height + this.actor.margin_bottom;
+                        this.actor.y = yPos - (this.actor.height * MENU_ANIMATION_OFFSET) + this.actor.margin_bottom;
                     break;
                 case St.Side.LEFT:
                 case St.Side.RIGHT:
@@ -2292,15 +2304,20 @@ var PopupMenu = class PopupMenu extends PopupMenuBase {
                     xPos -= this.actor.margin_left;
                     tweenParams["onUpdateParams"] = [xPos];
                     if (this.sideFlipped) // Right
-                        this.actor.x = xPos + this.actor.width - this.actor.margin_left;
+                        this.actor.x = xPos + (this.actor.width * MENU_ANIMATION_OFFSET) - this.actor.margin_left;
                     else // Left
-                        this.actor.x = xPos - this.actor.width + this.actor.margin_right;
+                        this.actor.x = xPos - (this.actor.width * MENU_ANIMATION_OFFSET) + this.actor.margin_right;
                     break;
             }
 
             Tweener.addTween(this.actor, tweenParams);
         } else {
             this.animating = false;
+
+            let [xPos, yPos] = this._calculatePosition(); // should this be conditional on this._slidePosition being -1?
+            this.actor.x = xPos;
+            this.actor.y = yPos;
+
             this.actor.show();
         }
 
@@ -2326,10 +2343,13 @@ var PopupMenu = class PopupMenu extends PopupMenuBase {
             this._activeMenuItem.setActive(false);
 
         if (animate && global.settings.get_boolean("desktop-effects-on-menus")) {
+            this.actor.set_position(...this._calculatePosition());
+            this.actor.set_size(...this.actor.get_size());
             this.animating = true;
             let tweenParams = {
                 transition: "easeInQuad",
                 time: MENU_ANIMATION_TIME,
+                opacity: 0,
                 onUpdate: dest => {
                         let clipY = 0;
                         let clipX = 0;
@@ -2349,6 +2369,8 @@ var PopupMenu = class PopupMenu extends PopupMenuBase {
                     this.animating = false;
                     this.actor.hide();
                     this.actor.remove_clip();
+                    this.actor.set_size(-1, -1);
+                    this.actor.opacity = 255;
                 }
             }
 
@@ -2358,18 +2380,18 @@ var PopupMenu = class PopupMenu extends PopupMenuBase {
                     let yPos = this.actor.y - this.actor.margin_top;
                     tweenParams["onUpdateParams"] = [yPos - this.actor.margin_top];
                     if (this.sideFlipped) // Botton
-                        tweenParams["y"] = yPos + this.actor.height + this.actor.margin_bottom;
+                        tweenParams["y"] = yPos + (this.actor.height * MENU_ANIMATION_OFFSET) + this.actor.margin_bottom;
                     else // Top
-                        tweenParams["y"] = yPos - this.actor.height - this.actor.margin_top;
+                        tweenParams["y"] = yPos - (this.actor.height * MENU_ANIMATION_OFFSET) - this.actor.margin_top;
                     break;
                 case St.Side.LEFT:
                 case St.Side.RIGHT:
                     let xPos = this.actor.x - this.actor.margin_left;
                     tweenParams["onUpdateParams"] = [xPos - this.actor.margin_left];
                     if (this.sideFlipped) // Right
-                        tweenParams["x"] = xPos + this.actor.width + this.actor.margin_right;
+                        tweenParams["x"] = xPos + (this.actor.width * MENU_ANIMATION_OFFSET) + this.actor.margin_right;
                     else // Left
-                        tweenParams["x"] = xPos - this.actor.width - this.actor.margin_left;
+                        tweenParams["x"] = xPos - (this.actor.width * MENU_ANIMATION_OFFSET) - this.actor.margin_left;
                     break;
             }
 
@@ -2545,7 +2567,7 @@ var PopupMenu = class PopupMenu extends PopupMenuBase {
     }
 
     _onKeyPressEvent(actor, event) {
-        if (event.get_key_symbol() == Clutter.Escape) {
+        if (event.get_key_symbol() === Clutter.KEY_Escape) {
             this.close(true);
             return true;
         }
@@ -2746,14 +2768,12 @@ var PopupSubMenu = class PopupSubMenu extends PopupMenuBase {
                                        this._arrow.rotation_angle_z = this.actor._arrowRotation;
                                }
                              });
-            } else {
-                if (this._arrow)
-                    this._arrow.rotation_angle_z = 0;
-                this.actor.hide();
-
-                this.isOpen = false;
-                this.emit('open-state-changed', false);
-            }
+        } else {
+            if (this._arrow) this._arrow.rotation_angle_z = 0;
+            this.actor.hide();
+            this.isOpen = false;
+            this.emit('open-state-changed', false);
+        }
     }
 
     //Closes the submenu after it has been unmapped. Used to prevent size changes
@@ -2775,9 +2795,9 @@ var PopupSubMenu = class PopupSubMenu extends PopupMenuBase {
     _onKeyPressEvent(actor, event) {
         // Move focus back to parent menu if the user types Left.
 
-        if (this.isOpen && event.get_key_symbol() == Clutter.KEY_Left) {
-            this.close(true);
+        if (this.isOpen && event.get_key_symbol() === Clutter.KEY_Left) {
             this.sourceActor._delegate.setActive(true);
+            this.close(true);
             return true;
         }
 
@@ -2856,11 +2876,11 @@ var PopupSubMenuMenuItem = class PopupSubMenuMenuItem extends PopupBaseMenuItem 
     _onKeyPressEvent(actor, event) {
         let symbol = event.get_key_symbol();
 
-        if (symbol == Clutter.KEY_Right) {
+        if (symbol === Clutter.KEY_Right) {
             this.menu.open(true);
             this.menu.actor.navigate_focus(null, Gtk.DirectionType.DOWN, false);
             return true;
-        } else if (symbol == Clutter.KEY_Left && this.menu.isOpen) {
+        } else if (symbol === Clutter.KEY_Left && this.menu.isOpen) {
             this.menu.close();
             return true;
         }
@@ -2890,7 +2910,7 @@ var PopupComboMenu = class PopupComboMenu extends PopupMenuBase {
     }
 
     _onKeyPressEvent(actor, event) {
-        if (event.get_key_symbol() == Clutter.Escape) {
+        if (event.get_key_symbol() === Clutter.KEY_Escape) {
             this.close(true);
             return true;
         }
@@ -3329,9 +3349,10 @@ var PopupMenuManager = class PopupMenuManager {
         return this._init.apply(this, arguments);
     }
 
-    _init(owner) {
+    _init(owner, shouldGrab = true) {
         this._owner = owner;
         this.grabbed = false;
+        this.shouldGrab = shouldGrab;
 
         this._eventCaptureId = 0;
         this._enterEventId = 0;
@@ -3380,6 +3401,9 @@ var PopupMenuManager = class PopupMenuManager {
             this._signals.disconnect(null, menu.sourceActor);
 
         this._menus.splice(position, 1);
+
+        // Make sure destroy is called after the last menu is removed/destroyed.
+        if (this._menus.length === 0) this.destroy();
     }
 
     _grab() {
@@ -3421,6 +3445,8 @@ var PopupMenuManager = class PopupMenuManager {
                 this._didPop = true;
             }
         }
+
+        if (!this.shouldGrab) return;
 
         // Check what the focus was before calling pushModal/popModal
         let focus = global.stage.key_focus;

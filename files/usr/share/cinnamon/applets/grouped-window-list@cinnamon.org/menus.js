@@ -83,6 +83,10 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
             return new PopupMenu.PopupMenuItem(opts.label);
         };
 
+        // TODO: When no windows exist on the active workspace, but do on another,
+        // we should detect those cases and offer workspace options if they are pinned. Otherwise,
+        // user needs to switch workspaces just to switch the window back. This should behave this way
+        // when showAllWorkspaces is disabled as well since its a UX problem.
         if (hasWindows) {
             // Monitors
             if (Main.layoutManager.monitors.length > 1) {
@@ -108,6 +112,9 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
                     item = createMenuItem({label: _('Only on this workspace')});
                     this.signals.connect(item, 'activate', () => {
                         this.groupState.lastFocused.unstick();
+                        // Always index windows from all workspaces while showAllWorkspaces is enabled
+                        if (this.state.settings.showAllWorkspaces) return;
+                        this.state.removingWindowFromWorkspaces = true;
                         this.state.trigger('removeWindowFromOtherWorkspaces', this.groupState.lastFocused);
                     });
                     this.addMenuItem(item);
@@ -128,17 +135,18 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
                         });
                     };
                     for (let i = 0; i < length; i++) {
-                        // Make the index a local letiable to pass to function
+                        // Make the index a local variable to pass to function
                         let j = i;
                         let name = Main.workspace_names[i] ? Main.workspace_names[i] : Main._makeDefaultWorkspaceName(i);
-                        let ws = createMenuItem({label: _(name)});
+                        let menuItem = createMenuItem({label: _(name)});
+                        let ws = this.groupState.lastFocused.get_workspace();
 
-                        if (i === this.state.currentWs) {
-                            ws.setSensitive(false);
+                        if (ws && i === ws.index()) {
+                            menuItem.setSensitive(false);
                         }
 
-                        connectWorkspaceEvent(ws, j);
-                        item.menu.addMenuItem(ws);
+                        connectWorkspaceEvent(menuItem, j);
+                        item.menu.addMenuItem(menuItem);
                     }
                 }
             }
@@ -157,10 +165,9 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
         this.signals.connect(item, 'activate', () => this.state.trigger('configureApplet'));
         subMenu.menu.addMenuItem(item);
 
-        item = createMenuItem({label: _('Remove') + " 'Grouped window list'", icon: 'edit-delete'});
-        this.signals.connect(item, 'activate', () => {
-            AppletManager._removeAppletFromPanel(this.state.uuid, this.state.instance_id);
-        });
+        item = createMenuItem({label: _("Remove '%s'").format(_("Grouped window list")), icon: 'edit-delete'});
+        this.signals.connect(item, 'activate', (actor, event) => this.state.trigger('removeApplet', event));
+
         subMenu.menu.addMenuItem(item);
         this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
@@ -219,6 +226,15 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
             }
         }
 
+        if (Main.gpu_offload_supported && !hasWindows) {
+            item = createMenuItem({label: _("Run with NVIDIA GPU"), icon: 'cpu'});
+
+            this.signals.connect(item, 'activate', () => this.groupState.trigger('launchNewInstance', true));
+
+            this.addMenuItem(item);
+            this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
+
         // Actions
         tryFn(() => {
             if (!this.groupState.appInfo) return;
@@ -274,19 +290,17 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
 
         // Pin/unpin, shortcut handling
         if (!isWindowBacked) {
-            if (this.state.settings.showPinned !== FavType.none) {
-                let label, icon;
-                if (this.groupState.isFavoriteApp) {
-                    label = _('Unpin from Panel');
-                    icon = 'unpin';
-                } else {
-                    label = _('Pin to Panel');
-                    icon = 'pin';
-                }
-                this.pinToggleItem = createMenuItem({label, icon});
-                this.signals.connect(this.pinToggleItem, 'activate', (...args) => this.toggleFavorite(...args));
-                this.addMenuItem(this.pinToggleItem);
+            let label, icon;
+            if (this.groupState.isFavoriteApp) {
+                label = _('Unpin from Panel');
+                icon = 'unpin';
+            } else {
+                label = _('Pin to Panel');
+                icon = 'pin';
             }
+            this.pinToggleItem = createMenuItem({label, icon});
+            this.signals.connect(this.pinToggleItem, 'activate', (...args) => this.toggleFavorite(...args));
+            this.addMenuItem(this.pinToggleItem);
             if (this.state.settings.autoStart) {
                 let label = this.groupState.autoStartIndex !== -1 ? _('Remove from Autostart') : _('Add to Autostart');
                 item = createMenuItem({label: label, icon: 'insert-object'});
@@ -305,7 +319,7 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
         if (hasWindows) {
             let metaWindowActor = this.groupState.lastFocused.get_compositor_private();
             // Miscellaneous
-            if (metaWindowActor.opacity !== 255) {
+            if (metaWindowActor && metaWindowActor.opacity !== 255) {
                 item = createMenuItem({label: _('Restore to full opacity')});
                 this.signals.connect(item, 'activate', () => metaWindowActor.set_opacity(255));
                 this.addMenuItem(item);
@@ -351,6 +365,9 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
                 });
                 this.addMenuItem(item);
                 // Close all
+                // TODO: We should detect if windows from this group are on another workspace
+                // and close windows across all workspaces while showAllWorkspaces is enabled.
+                // Ditto for 'Close others'.
                 item = createMenuItem({label: _('Close all'), icon: 'application-exit'});
                 this.signals.connect(item, 'activate', () => {
                     if (!this.groupState.isFavoriteApp) {
@@ -460,14 +477,48 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
 
     destroy() {
         this.signals.disconnectAllSignals();
-        Applet.AppletPopupMenu.prototype.destroy.call(this);
+        super.destroy();
         unref(this, RESERVE_KEYS);
     }
 }
 
 class HoverMenuController extends PopupMenu.PopupMenuManager {
+    constructor(actor, groupState) {
+        super({actor}, false); // owner, shouldGrab
+        this.groupState = groupState;
+        this.connectId = this.groupState.connect({
+            thumbnailMenuEntered: ({thumbnailMenuEntered}) => {
+                this.shouldGrab = thumbnailMenuEntered;
+                this._onMenuOpenState(this._menus[0], this._menus[0].isOpen);
+                this.groupState.trigger('checkFocusStyle');
+                if (!this.grabbed) return;
+                if (!thumbnailMenuEntered) this._ungrab();
+            }
+        });
+    }
+
     _onEventCapture() {
         return false;
+    }
+
+    destroy() {
+        this.groupState.disconnect(this.connectId);
+        super.destroy();
+    }
+
+    _onMenuOpenState(menu, open) {
+        if (open) {
+            if (this._activeMenu && this._activeMenu.isChildMenu(menu)) {
+                this._menuStack.push(this._activeMenu);
+            }
+            this._activeMenu = menu;
+        } else {
+            if (this._menuStack.length > 0) {
+                this._activeMenu = this._menuStack.pop();
+                if (menu.sourceActor)
+                    this._didPop = true;
+            }
+        }
     }
 }
 
@@ -563,7 +614,8 @@ class WindowThumbnail {
         this.signals.connect(this.button, 'button-release-event', (...args) => this.onCloseButtonRelease(...args));
         this.signals.connect(this.actor, 'button-release-event', (...args) => this.connectToWindow(...args));
 
-        setTimeout(() => this.handleFavorite(), 0);
+
+        this.handleFavorite();
         // Update focused style
         this.onFocusWindowChange();
     }
@@ -594,6 +646,7 @@ class WindowThumbnail {
 
     onLeave() {
         this.entered = false;
+        this.stopClick = false;
         this.actor.remove_style_pseudo_class('selected');
         this.onFocusWindowChange();
         this.button.set_opacity(0);
@@ -639,6 +692,8 @@ class WindowThumbnail {
         this.metaWindow.delete(global.get_current_time());
         if (!this.groupState.metaWindows || this.groupState.metaWindows.length <= 1) {
             this.groupState.trigger('hoverMenuClose');
+        } else {
+            this.groupState.trigger('checkShouldClose');
         }
     }
 
@@ -667,33 +722,29 @@ class WindowThumbnail {
 
     getThumbnail(thumbnailWidth, thumbnailHeight) {
         if (this.groupState.verticalThumbs || !this.state.settings.showThumbs) {
-            this.thumbnailActor.height = 0;
+            this.thumbnailActor.hide();
             return null;
+        } else if (this.thumbnailActor.realized) {
+            this.thumbnailActor.show();
         }
         // Create our own thumbnail if it doesn't exist
-        let isUpdate = false;
         if (this.metaWindowActor) {
-            isUpdate = true;
             this.signals.disconnect('size-changed', this.metaWindowActor);
+        } else {
+            this.metaWindowActor = this.metaWindow.get_compositor_private();
         }
-        this.metaWindowActor = this.metaWindow.get_compositor_private();
-        if (this.metaWindowActor) {
-            let windowTexture = this.metaWindowActor.get_texture();
-            let [width, height] = windowTexture.get_size();
+        if (this.metaWindowActor && !this.metaWindowActor.is_finalized()) {
             this.signals.connect(this.metaWindowActor, 'size-changed', () => this.refreshThumbnail());
 
-            if (this.groupState.isFavoriteApp) {
-                this.signals.connect(this.metaWindowActor, 'destroy', () => {
-                    if (this.willUnmount || !this.groupState.trigger) return;
-                    this.groupState.trigger('removeThumbnailFromMenu', this.metaWindow);
-                    this.metaWindowActor = null;
-                });
-            }
-
+            let windowTexture = this.metaWindowActor.get_texture();
+            if (!windowTexture) return;
+            let [width, height] = windowTexture.get_size();
             let scale = Math.min(1.0, thumbnailWidth / width, thumbnailHeight / height) * global.ui_scale;
             width = Math.round(width * scale);
             height = Math.round(height * scale);
-            if (isUpdate) {
+            if (this.thumbnailActor.child) {
+                this.thumbnailActor.height = height;
+                this.thumbnailActor.width = width;
                 this.thumbnailActor.child.source = windowTexture;
                 this.thumbnailActor.child.width = width;
                 this.thumbnailActor.child.height = height;
@@ -720,15 +771,16 @@ class WindowThumbnail {
         }
 
         let monitor = this.state.trigger('getPanelMonitor');
+        if (!monitor) return;
 
         if (!this.thumbnailActor || this.thumbnailActor.is_finalized()) return;
 
-        let divider = 80;
+        let divider = 80 * global.ui_scale;
         let {thumbSize} = this.state.settings;
 
-        if (monitor.height <= 1024) {
+        if (monitor.height / global.ui_scale <= 1024) {
             thumbSize += 6;
-        } else if (monitor.height <= 1200) {
+        } else if (monitor.height / global.ui_scale <= 1200) {
             thumbSize += 3;
         }
 
@@ -782,7 +834,10 @@ class WindowThumbnail {
     }
 
     hoverPeek(opacity) {
-        if (!this.state.settings.enablePeek || this.state.overlayPreview || this.state.scrollActive) {
+        if (!this.state.settings.enablePeek
+            || this.state.overlayPreview
+            || this.state.scrollActive
+            || (this.metaWindowActor && this.metaWindowActor.is_finalized())) {
             return;
         }
         if (!this.metaWindowActor) {
@@ -841,13 +896,38 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
         super._init.call(this, groupState.trigger('getActor'), state.orientation, 0.5);
         this.state = state;
         this.groupState = groupState;
+        this.shouldClose = true;
+        this.isOpen = false;
+        this.setCustomStyleClass("grouped-window-list-thumbnail-menu");
 
         this.connectId = this.groupState.connect({
             hoverMenuClose: () => {
                 this.shouldClose = true;
+                this.groupState.set({thumbnailMenuEntered: false});
                 this.close();
             },
-            addThumbnailToMenu: (win) => this.addThumbnail(win),
+            checkShouldClose: () => {
+                // This is called after a close button is clicked. When the menu size changes, it can leave the cursor
+                // outside the menu bounds, and no leave event will be able to correct this situation where the menu is
+                // dangling open and only closable upon hovering over it again. This checks if the cursor is hovering
+                // over the menu and closes it if not.
+                setTimeout(() => {
+                    let [x, y, mask] = global.get_pointer();
+                    let draggedOverActor = global.stage.get_actor_at_pos(Clutter.PickMode.ALL, x, y);
+                    let parent = draggedOverActor.get_parent();
+                    if (!(parent instanceof St.Widget)) {
+                        this.close(true);
+                    }
+                }, 500);
+            },
+            addThumbnailToMenu: (win) => {
+                if (this.isOpen) {
+                    this.addThumbnail(win);
+                    return;
+                }
+
+                this.queuedWindows.push(win);
+            },
             removeThumbnailFromMenu: (win) => {
                 let index = findIndex(this.appThumbnails, (item) => item.metaWindow === win);
                 if (index > -1) {
@@ -855,16 +935,50 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
                     this.appThumbnails[index] = undefined;
                     this.appThumbnails.splice(index, 1);
                 }
+                index = this.queuedWindows.indexOf(win);
+                if (index > -1) this.queuedWindows.splice(index, 1);
             },
             verticalThumbs: () => {
                 // Preserve the menu's open state after refreshing
                 let {isOpen} = this;
-                this.setVerticalSetting()
+                this.setVerticalSetting();
                 if (isOpen) this.open(true);
+            },
+            fileDrag: ({fileDrag}) => {
+                if (fileDrag) {
+                    // When a drag operation from another app is started, no events fire, so we have to grab the
+                    // cursor, find the actor by coordinates, and then look up the thumbnail actor. Do this on a
+                    // 50ms loop until the menu closes so we continue getting data in the absence of events.
+                    this.interval = setInterval(() => {
+                        let [x, y, mask] = global.get_pointer();
+                        let draggedOverActor = global.stage.get_actor_at_pos(Clutter.PickMode.ALL, x, y);
+                        if (draggedOverActor instanceof Meta.ShapedTexture) {
+                            this.groupState.set({fileDrag: false});
+                            this.close(true);
+                            return;
+                        }
+                        each(this.appThumbnails, function(thumbnail) {
+                            if (thumbnail.thumbnailActor === draggedOverActor) {
+                                Main.activateWindow(thumbnail.metaWindow, global.get_current_time());
+                                return false;
+                            }
+                        });
+                    }, 50);
+                } else if (this.interval) {
+                    clearInterval(this.interval);
+                }
             }
         });
 
         this.appThumbnails = [];
+        this.queuedWindows = [];
+        this.fullyRefreshThumbnails();
+    }
+
+    addQueuedThumbnails() {
+        if (this.queuedWindows.length === 0) return;
+        each(this.queuedWindows, (win) => this.addThumbnail(win));
+        this.queuedWindows = [];
     }
 
     onButtonPress() {
@@ -875,30 +989,42 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
         setTimeout(() => this.close(), this.state.settings.thumbTimeout);
     }
 
-    onMenuEnter() {
+    onMenuEnter(actor) {
         if (this.state.panelEditMode ||
             (!this.isOpen && this.state.settings.onClickThumbs) ||
             this.state.menuOpen) {
             return false;
         }
+
         this.shouldClose = false;
 
         let timeout;
-
         if (this.state.thumbnailMenuOpen) {
             timeout = 50;
         } else {
             timeout = this.state.settings.thumbTimeout;
         }
 
+        this.addQueuedThumbnails();
+
+        if (actor != null) {
+            this.groupState.set({thumbnailMenuEntered: this.isOpen});
+        }
+
         setTimeout(() => this.open(), timeout);
     }
 
-    onMenuLeave() {
+    onMenuLeave(actor) {
         if (this.state.menuOpen || this.state.panelEditMode) {
             return false;
         }
+
         this.shouldClose = true;
+
+        if (actor != null) {
+            this.groupState.set({thumbnailMenuEntered: false});
+        }
+
         setTimeout(() => this.close(), 50);
     }
 
@@ -922,8 +1048,9 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
             this.groupState.tooltip.set_text(this.groupState.appName);
             this.groupState.tooltip.show();
         } else {
+            if (force || this.state.settings.onClickThumbs) this.addQueuedThumbnails();
             this.state.set({thumbnailMenuOpen: true});
-            PopupMenu.PopupMenu.prototype.open.call(this, this.state.settings.animateThumbs);
+            super.open(this.state.settings.animateThumbs);
         }
     }
 
@@ -934,20 +1061,28 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
             || !this.groupState.tooltip) {
             return;
         }
-        if (!this.groupState.metaWindows || this.groupState.metaWindows.length === 0) {
+        if ((!this.groupState.metaWindows || this.groupState.metaWindows.length === 0)
+            && !this.groupState.tooltip._tooltip.is_finalized()) {
             this.groupState.tooltip.set_text('');
             this.groupState.tooltip.hide();
         }
         if (this.isOpen) {
             this.state.set({thumbnailMenuOpen: false});
-            PopupMenu.PopupMenu.prototype.close.call(this, this.state.settings.animateThumbs);
+            if (!this.actor.is_finalized()) super.close(this.state.settings.animateThumbs);
         }
         for (let i = 0; i < this.appThumbnails.length; i++) {
             this.appThumbnails[i].destroyOverlayPreview();
         }
+
+        if (this.groupState.fileDrag) {
+            this.groupState.set({fileDrag: false});
+        }
     }
 
     onKeyPress(actor, e) {
+        let {orientation} = this.state;
+        let {vertical} = this.box;
+
         let symbol = e.get_key_symbol();
         let i = findIndex(this.appThumbnails, (item) => item.entered === true);
         let entered = i > -1;
@@ -961,19 +1096,25 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
         }
         let args;
         let closeArg;
-        if (this.state.orientation === St.Side.TOP) {
+        if (orientation === St.Side.TOP) {
             closeArg = Clutter.KEY_Up;
             args = [Clutter.KEY_Left, Clutter.KEY_Right];
-        } else if (this.state.orientation === St.Side.BOTTOM) {
+        } else if (orientation === St.Side.BOTTOM) {
             closeArg = Clutter.KEY_Down;
             args = [Clutter.KEY_Right, Clutter.KEY_Left];
-        } else if (this.state.orientation === St.Side.LEFT) {
+        } else if (orientation === St.Side.LEFT) {
             closeArg = Clutter.KEY_Left;
             args = [Clutter.KEY_Up, Clutter.KEY_Down];
-        } else if (this.state.orientation === St.Side.RIGHT) {
+        } else if (orientation === St.Side.RIGHT) {
             closeArg = Clutter.KEY_Right;
             args = [Clutter.KEY_Down, Clutter.KEY_Up];
         }
+
+        // Panel is oriented horizontally, but the menu is vertical
+        if (vertical && (orientation === St.Side.TOP || orientation === St.Side.BOTTOM)) {
+            args = [Clutter.KEY_Down, Clutter.KEY_Up];
+        }
+
         let index;
         if (symbol === args[0]) {
             if (!entered) {
@@ -991,7 +1132,7 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
             } else {
                 index = this.appThumbnails.length - 1;
             }
-        } else if (symbol === Clutter.KEY_Return && entered) {
+        } else if ((symbol === Clutter.KEY_Return || symbol === Clutter.KEY_KP_Enter) && entered) {
             this.appThumbnails[i].connectToWindow(null, 1);
         } else if (symbol === closeArg) {
             this.appThumbnails[i].onLeave();
@@ -1012,7 +1153,6 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
             this.destroyThumbnails();
         }
         this.addWindowThumbnails(this.groupState.metaWindows);
-        this.setStyleOptions(false);
     }
 
     destroyThumbnails() {
@@ -1074,37 +1214,20 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
         }
     }
 
-    setStyleOptions(skipThumbnailIconResize) {
-        if (this.willUnmount || !this.box) return;
-
-        // The styling cannot be set correctly unless the menu is closed. Fortunately this
-        // can be closed and reopened too quickly for the user to notice.
-        if (this.isOpen) this.close(true);
-
-        this.box.show();
-        this.box.style = null;
-
-        let thumbnailTheme = this.box.peek_theme_node();
-        let padding = thumbnailTheme ? thumbnailTheme.get_horizontal_padding() : null;
-        let thumbnailPadding = padding && (padding > 1 && padding < 21) ? padding : 10;
-        this.box.style = `padding: ${thumbnailPadding / 2}px`;
-        let boxTheme = this.box.peek_theme_node();
-        padding = boxTheme ? boxTheme.get_vertical_padding() : null;
-        let boxPadding = padding && padding > 0 ? padding : 3;
-        this.box.style = `padding: ${boxPadding}px;`;
-
-        if (skipThumbnailIconResize) return;
-
-        if (this.isOpen) this.open();
-    }
-
     setVerticalSetting() {
         if (this.state.orientation === St.Side.TOP || this.state.orientation === St.Side.BOTTOM) {
             this.box.vertical = this.groupState.verticalThumbs || this.state.settings.verticalThumbs;
         } else {
             this.box.vertical = true;
         }
-        this.fullyRefreshThumbnails();
+
+        // Do a full refresh if thumbnails don't exist - this happens when the thumbnail menu
+        // initializes vertically from lack of calculated space, or thumbnails are disabled.
+        if (!this.appThumbnails[0] || !this.appThumbnails[0].thumbnailActor.child) {
+            this.fullyRefreshThumbnails();
+        } else {
+            this.updateThumbnailSize();
+        }
     }
 
     updateThumbnailSize() {
@@ -1132,7 +1255,7 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
             }
         }
         this.removeAll();
-        PopupMenu.PopupMenu.prototype.destroy.call(this);
+        super.destroy();
         this.groupState.disconnect(this.connectId);
         unref(this, RESERVE_KEYS);
     }

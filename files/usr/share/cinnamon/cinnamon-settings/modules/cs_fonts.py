@@ -4,7 +4,8 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
-from GSettingsWidgets import *
+from SettingsWidgets import SidePage
+from xapp.GSettingsWidgets import *
 
 
 class Module:
@@ -14,7 +15,7 @@ class Module:
 
     def __init__(self, content_box):
         keywords = _("font, size, small, large")
-        sidePage = SidePage(_("Fonts"), "cs-fonts", keywords, content_box, module=self)
+        sidePage = SidePage(_("Font Selection"), "cs-fonts", keywords, content_box, module=self)
         self.sidePage = sidePage
 
     def on_module_selected(self):

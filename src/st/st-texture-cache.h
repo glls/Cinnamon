@@ -31,8 +31,8 @@
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <clutter/clutter.h>
 
-#include <st/st-types.h>
-#include <st/st-theme-node.h>
+#include "st-types.h"
+#include "st-theme-node.h"
 
 #define ST_TYPE_TEXTURE_CACHE                 (st_texture_cache_get_type ())
 #define ST_TEXTURE_CACHE(obj)                 (G_TYPE_CHECK_INSTANCE_CAST ((obj), ST_TYPE_TEXTURE_CACHE, StTextureCache))
@@ -76,9 +76,8 @@ st_texture_cache_load_sliced_image (StTextureCache *cache,
                                     GFunc           load_callback,
                                     gpointer        user_data);
 
-ClutterActor *st_texture_cache_bind_pixbuf_property (StTextureCache    *cache,
-                                                     GObject           *object,
-                                                     const char        *property_name);
+ClutterActor *st_texture_cache_load_from_pixbuf (GdkPixbuf *pixbuf,
+                                                 int        size);
 
 ClutterActor *st_texture_cache_load_gicon (StTextureCache *cache,
                                            StThemeNode    *theme_node,
@@ -121,6 +120,25 @@ ClutterActor *st_texture_cache_load_from_raw (StTextureCache    *cache,
 
 ClutterActor *st_texture_cache_load_file_simple (StTextureCache *cache,
                                                  const gchar    *file_path);
+
+/**
+ * StTextureCacheLoadImageCallback
+ * @cache: a #StTextureCache
+ * @actor: the actor containing the loaded image
+ * @gpointer: Callback data
+ *
+ * Callback from st_texture_cache_load_image_from_file_async
+ */
+typedef void (* StTextureCacheLoadImageCallback) (StTextureCache *cache,
+                                                  ClutterActor   *actor,
+                                                  gpointer        user_data);
+
+void st_texture_cache_load_image_from_file_async (StTextureCache                    *cache,
+                                                  const gchar                       *path,
+                                                  gint                               width,
+                                                  gint                               height,
+                                                  StTextureCacheLoadImageCallback    callback,
+                                                  gpointer                           user_data);
 
 /**
  * StTextureCacheLoader: (skip)

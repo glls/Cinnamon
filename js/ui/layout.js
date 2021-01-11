@@ -20,8 +20,7 @@ const EdgeFlip = imports.ui.edgeFlip;
 const HotCorner = imports.ui.hotCorner;
 const DeskletManager = imports.ui.deskletManager;
 const Panel = imports.ui.panel;
-
-const STARTUP_ANIMATION_TIME = 0.5;
+const StartupAnimation = imports.ui.startupAnimation;
 
 function isPopupMetaWindow(actor) {
     switch(actor.meta_window.get_window_type()) {
@@ -189,44 +188,30 @@ LayoutManager.prototype = {
 
         this.keyboardBox.hide();
 
-        let monitor = this.primaryMonitor;
-        let x = monitor.x + monitor.width / 2.0;
-        let y = monitor.y + monitor.height / 2.0;
-
-        Main.uiGroup.set_pivot_point(x / global.screen_width,
-                                     y / global.screen_height);
-        Main.uiGroup.scale_x = Main.uiGroup.scale_y = 0.75;
-        Main.uiGroup.opacity = 0;
+        global.stage.hide_cursor();
         global.background_actor.show();
-        global.window_group.set_clip(monitor.x, monitor.y, monitor.width, monitor.height);
+
+        this.startupAnimation = new StartupAnimation.Animation(this.primaryMonitor,
+                                                               ()=>this._startupAnimationComplete());
+        this._chrome.updateRegions();
     },
 
-    _startupAnimation: function() {
+    _doStartupAnimation: function() {
         // Don't animate the strut
         this._chrome.freezeUpdateRegions();
-        Tweener.addTween(Main.uiGroup,
-                         { scale_x: 1,
-                           scale_y: 1,
-                           opacity: 255,
-                           time: STARTUP_ANIMATION_TIME,
-                           transition: 'easeOutQuad',
-                           onComplete: this._startupAnimationComplete,
-                           onCompleteScope: this });
+        this.startupAnimation.run();
     },
 
     _startupAnimationComplete: function() {
-        global.stage.no_clear_hint = true;
+        global.stage.show_cursor();
         this._coverPane.destroy();
         this._coverPane = null;
-
-        global.window_group.remove_clip();
         this._chrome.thawUpdateRegions();
 
         Main.setRunState(Main.RunState.RUNNING);
     },
 
     showKeyboard: function () {
-        if (Main.messageTray) Main.messageTray.hide();
         if (this.hideIdleId > 0) {
             Mainloop.source_remove(this.hideIdleId);
             this.hideIdleId = 0;
@@ -267,8 +252,6 @@ LayoutManager.prototype = {
     },
 
     hideKeyboard: function (immediate) {
-        if (Main.messageTray) Main.messageTray.hide();
-
         this.keyboardBox.hide();
         this._chrome.modifyActorParams(this.keyboardBox, { affectsStruts: false });
         this._chrome.updateRegions();
@@ -694,7 +677,14 @@ Chrome.prototype = {
     },
 
     _windowsRestacked: function() {
-        if (this._isPopupWindowVisible != global.top_window_group.get_children().some(isPopupMetaWindow))
+        // Figure out where the pointer is in case we lost track of
+        // it during a grab.
+        global.sync_pointer();
+
+        let isPopupWindowVisible = global.top_window_group.get_children().some(isPopupMetaWindow);
+        let popupVisibilityChanged = this._isPopupWindowVisible !== isPopupWindowVisible;
+        this._isPopupWindowVisible = isPopupWindowVisible;
+        if (popupVisibilityChanged)
             this._updateVisibility();
         else
             this._queueUpdateRegions();
@@ -708,8 +698,7 @@ Chrome.prototype = {
             this._updateRegionIdle = 0;
         }
 
-        let isPopupMenuVisible = global.top_window_group.get_children().some(isPopupMetaWindow);
-        let wantsInputRegion = !isPopupMenuVisible;
+        let wantsInputRegion = !this._isPopupWindowVisible;
 
         for (let i = 0; i < this._trackedActors.length; i++) {
             let actorData = this._trackedActors[i];
@@ -803,7 +792,6 @@ Chrome.prototype = {
         }
 
         global.set_stage_input_region(rects);
-        this._isPopupWindowVisible = isPopupMenuVisible;
 
         let screen = global.screen;
         for (let w = 0; w < screen.n_workspaces; w++) {

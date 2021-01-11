@@ -38,6 +38,8 @@ static const ClutterColor DEFAULT_SUCCESS_COLOR = { 0x4e, 0x9a, 0x06, 0xff };
 static const ClutterColor DEFAULT_WARNING_COLOR = { 0xf5, 0x79, 0x3e, 0xff };
 static const ClutterColor DEFAULT_ERROR_COLOR = { 0xcc, 0x00, 0x00, 0xff };
 
+static double resolution = -1.0;
+
 extern gfloat st_slow_down_factor;
 
 G_DEFINE_TYPE (StThemeNode, st_theme_node, G_TYPE_OBJECT)
@@ -498,6 +500,13 @@ typedef enum {
 } GetFromTermResult;
 
 static gboolean
+term_is_symbolic (CRTerm *term)
+{
+    return (term->type == TERM_IDENT &&
+            g_str_has_prefix (term->content.str->stryng->str, "symbolic"));
+}
+
+static gboolean
 term_is_inherit (CRTerm *term)
 {
   return (term->type == TERM_IDENT &&
@@ -611,6 +620,37 @@ get_color_from_rgba_term (CRTerm       *term,
 }
 
 static GetFromTermResult
+get_color_from_symbolic_name (CRTerm       *term,
+                              StIconColors *icon_colors,
+                              ClutterColor *color)
+{
+  const gchar *substr = term->content.str->stryng->str + 8;
+
+  if (strcmp (substr, "") == 0)
+    {
+      *color = icon_colors->foreground;
+    }
+  else if (g_str_has_prefix (substr, "-warning"))
+    {
+      *color = icon_colors->warning;
+    }
+  else if (g_str_has_prefix (substr, "-error"))
+    {
+      *color = icon_colors->error;
+    }
+  else if (g_str_has_prefix (substr, "-success"))
+    {
+      *color = icon_colors->success;
+    }
+  else
+    {
+      return VALUE_NOT_FOUND;
+    }
+
+  return VALUE_FOUND;
+}
+
+static GetFromTermResult
 get_color_from_term (StThemeNode  *node,
                      CRTerm       *term,
                      ClutterColor *color)
@@ -618,13 +658,24 @@ get_color_from_term (StThemeNode  *node,
   CRRgb rgb;
   enum CRStatus status;
 
+  if (term_is_inherit (term))
+    {
+      return VALUE_INHERIT;
+    }
   /* Since libcroco doesn't know about rgba colors, it can't handle
    * the transparent keyword
    */
-  if (term_is_transparent (term))
+  else if (term_is_transparent (term))
     {
       *color = TRANSPARENT_COLOR;
       return VALUE_FOUND;
+    }
+
+  if (term_is_symbolic (term))
+    {
+      return get_color_from_symbolic_name (term,
+                                           st_theme_node_get_icon_colors (node),
+                                           color);
     }
   /* rgba () colors - a CSS3 addition, are not supported by libcroco,
    * but they are parsed as a "function", so we can emulate the
@@ -642,9 +693,6 @@ get_color_from_term (StThemeNode  *node,
   status = cr_rgb_set_from_term (&rgb, term);
   if (status != CR_OK)
     return VALUE_NOT_FOUND;
-
-  if (rgb.inherit)
-    return VALUE_INHERIT;
 
   if (rgb.is_percentage)
     cr_rgb_compute_from_percentage (&rgb);
@@ -859,7 +907,6 @@ get_length_from_term (StThemeNode *node,
 
   double multiplier = 1.0;
   int scale_factor;
-  double resolution;
 
   g_object_get (node->context, "scale-factor", &scale_factor, NULL);
 
@@ -966,7 +1013,6 @@ get_length_from_term (StThemeNode *node,
       *length = num->val * multiplier;
       break;
     case POINTS:
-      resolution = clutter_backend_get_resolution (clutter_get_default_backend ());
       *length = num->val * multiplier * (resolution / 72.);
       break;
     case FONT_RELATIVE:
@@ -987,7 +1033,6 @@ get_length_from_term (StThemeNode *node,
           }
         else
           {
-            resolution = clutter_backend_get_resolution (clutter_get_default_backend ());
             *length = num->val * multiplier * (resolution / 72.) * font_size;
           }
       }
@@ -1200,11 +1245,11 @@ do_border_property (StThemeNode   *node,
                     CRDeclaration *decl)
 {
   const char *property_name = decl->property->stryng->str + 6; /* Skip 'border' */
-  StSide side = (StSide)-1;
+  StSide side;
   ClutterColor color;
-  gboolean color_set = FALSE;
-  int width = 0; /* suppress warning */
-  gboolean width_set = FALSE;
+  gboolean color_set;
+  int width;
+  gboolean width_set;
   int j;
 
   if (g_str_has_prefix (property_name, "-radius"))
@@ -1212,6 +1257,11 @@ do_border_property (StThemeNode   *node,
       do_border_radius (node, decl);
       return;
     }
+
+  side = (StSide)-1;
+  color_set = FALSE;
+  width = 0; /* suppress warning */
+  width_set = FALSE;
 
   if (g_str_has_prefix (property_name, "-left"))
     {
@@ -2255,13 +2305,14 @@ st_theme_node_get_margin (StThemeNode *node,
 int
 st_theme_node_get_transition_duration (StThemeNode *node)
 {
-  gdouble value = 0.0;
+  gdouble value;
 
   g_return_val_if_fail (ST_IS_THEME_NODE (node), 0);
 
   if (node->transition_duration > -1)
     return st_slow_down_factor * node->transition_duration;
 
+  value = 0.0;
   st_theme_node_lookup_double (node, "transition-duration", FALSE, &value);
 
   node->transition_duration = (int)value;
@@ -2388,11 +2439,14 @@ font_family_from_terms (CRTerm *term,
                         char  **family)
 {
   GString *family_string;
-  gboolean result = FALSE;
-  gboolean last_was_quoted = FALSE;
+  gboolean result;
+  gboolean last_was_quoted;
 
   if (!term)
     return FALSE;
+
+  result = FALSE;
+  last_was_quoted = FALSE;
 
   family_string = g_string_new (NULL);
 
@@ -2460,7 +2514,6 @@ font_size_from_term (StThemeNode *node,
 {
   if (term->type == TERM_IDENT)
     {
-      double resolution = clutter_backend_get_resolution (clutter_get_default_backend ());
       /* We work in integers to avoid double comparisons when converting back
        * from a size in pixels to a logical size.
        */
@@ -2646,6 +2699,10 @@ const PangoFontDescription *
 st_theme_node_get_font (StThemeNode *node)
 {
   /* Initialized despite _set flags to suppress compiler warnings */
+
+  if (node->font_desc)
+    return node->font_desc;
+
   PangoStyle font_style = PANGO_STYLE_NORMAL;
   gboolean font_style_set = FALSE;
   PangoVariant variant = PANGO_VARIANT_NORMAL;
@@ -2655,19 +2712,16 @@ st_theme_node_get_font (StThemeNode *node)
   gboolean weight_set = FALSE;
   double size = 0.;
   gboolean size_set = FALSE;
-
   char *family = NULL;
   double parent_size;
   int i;
 
-  if (node->font_desc)
-    return node->font_desc;
+  resolution = clutter_backend_get_resolution (clutter_get_default_backend ());
 
   node->font_desc = pango_font_description_copy (get_parent_font (node));
   parent_size = pango_font_description_get_size (node->font_desc);
   if (!pango_font_description_get_size_is_absolute (node->font_desc))
     {
-      double resolution = clutter_backend_get_resolution (clutter_get_default_backend ());
       parent_size *= (resolution / 72.);
     }
 
@@ -2880,7 +2934,7 @@ st_theme_node_get_border_image (StThemeNode *node)
           int border_left;
 
           GFile *file;
-          char *filename;
+          char *filename = NULL;
 
           /* Support border-image: none; to suppress a previously specified border image */
           if (term_is_none (term))
@@ -3045,11 +3099,13 @@ parse_shadow_property (StThemeNode       *node,
                        gdouble           *yoffset,
                        gdouble           *blur,
                        gdouble           *spread,
-                       gboolean          *inset)
+                       gboolean          *inset,
+                       gboolean          *is_none)
 {
   GetFromTermResult result;
   CRTerm *term;
   int n_offsets = 0;
+  *is_none = FALSE;
 
   /* default values */
   color->red = 0x0; color->green = 0x0; color->blue = 0x0; color->alpha = 0xff;
@@ -3070,6 +3126,12 @@ parse_shadow_property (StThemeNode       *node,
    */
   for (term = decl->value; term; term = term->next)
     {
+      if (term_is_none (term))
+        {
+          *is_none = TRUE;
+          return VALUE_FOUND;
+        }
+
       if (term->type == TERM_NUMBER)
         {
           gdouble value;
@@ -3167,7 +3229,8 @@ parse_shadow_property (StThemeNode       *node,
  * See also st_theme_node_get_shadow(), which provides a simpler API.
  *
  * Return value: %TRUE if the property was found in the properties for this
- *  theme node (or in the properties of parent nodes when inheriting.)
+ * theme node (or in the properties of parent nodes when inheriting.), %FALSE
+ * if the property was not found, or was explicitly set to 'none'.
  */
 gboolean
 st_theme_node_lookup_shadow (StThemeNode  *node,
@@ -3181,6 +3244,7 @@ st_theme_node_lookup_shadow (StThemeNode  *node,
   gdouble blur = 0.;
   gdouble spread = 0.;
   gboolean inset = FALSE;
+  gboolean is_none = FALSE;
 
   int i;
 
@@ -3199,9 +3263,12 @@ st_theme_node_lookup_shadow (StThemeNode  *node,
                                                             &yoffset,
                                                             &blur,
                                                             &spread,
-                                                            &inset);
+                                                            &inset,
+                                                            &is_none);
           if (result == VALUE_FOUND)
             {
+              if (is_none)
+                return FALSE;
               *shadow = st_shadow_new (&color,
                                        xoffset, yoffset,
                                        blur, spread,
@@ -3345,12 +3412,14 @@ st_theme_node_get_background_image_shadow (StThemeNode *node)
 StShadow *
 st_theme_node_get_text_shadow (StThemeNode *node)
 {
-  StShadow *result = NULL;
+  StShadow *result;
 
   if (node->text_shadow_computed)
     return node->text_shadow;
 
   ensure_properties (node);
+
+  result = NULL;
 
   if (!st_theme_node_lookup_shadow (node,
                                     "text-shadow",
@@ -3405,12 +3474,14 @@ st_theme_node_get_icon_colors (StThemeNode *node)
   int i;
   ClutterColor color = { 0, };
 
-  guint still_need = FOREGROUND | WARNING | ERROR | SUCCESS;
+  guint still_need;
 
   g_return_val_if_fail (ST_IS_THEME_NODE (node), NULL);
 
   if (node->icon_colors)
     return node->icon_colors;
+
+  still_need = FOREGROUND | WARNING | ERROR | SUCCESS;
 
   if (node->parent_node)
     {

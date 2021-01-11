@@ -142,7 +142,7 @@ WindowList.prototype = {
 
         let tracker = Cinnamon.WindowTracker.get_default();
         global.display.connect('window-created', Lang.bind(this, this._updateWindowList));
-        tracker.connect('tracked-windows-changed', Lang.bind(this, this._updateWindowList));
+        tracker.connect('window-app-changed', Lang.bind(this, this._updateWindowList));
     },
 
     getWindowById: function(id) {
@@ -279,9 +279,9 @@ Inspector.prototype = {
     },
 
     _onCapturedEvent: function (actor, event) {
-        if (event.type() == Clutter.EventType.KEY_PRESS && (event.get_key_symbol() == Clutter.Control_L ||
-                                                            event.get_key_symbol() == Clutter.Control_R ||
-                                                            event.get_key_symbol() == Clutter.Pause)) {
+        if (event.type() == Clutter.EventType.KEY_PRESS && (event.get_key_symbol() === Clutter.KEY_Control_L ||
+                                                            event.get_key_symbol() === Clutter.KEY_Control_R ||
+                                                            event.get_key_symbol() === Clutter.KEY_Pause)) {
             this.passThroughEvents = !this.passThroughEvents;
             this._updatePassthroughText();
             return true;
@@ -336,7 +336,7 @@ Inspector.prototype = {
     },
 
     _onKeyPressEvent: function (actor, event) {
-        if (event.get_key_symbol() == Clutter.Escape)
+        if (event.get_key_symbol() === Clutter.KEY_Escape)
             this._close();
         return true;
     },

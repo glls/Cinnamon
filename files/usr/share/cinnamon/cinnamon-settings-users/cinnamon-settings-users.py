@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 import os
-import sys
 import pwd
 import grp
 import gettext
@@ -9,6 +8,7 @@ import shutil
 import re
 import subprocess
 from random import randint
+from setproctitle import setproctitle
 
 import PIL
 from PIL import Image
@@ -455,6 +455,7 @@ class Module:
     def __init__(self):
         try:
             self.builder = Gtk.Builder()
+            self.builder.set_translation_domain('cinnamon') # let it translate!
             self.builder.add_from_file("/usr/share/cinnamon/cinnamon-settings-users/cinnamon-settings-users.ui")
             self.window = self.builder.get_object("main_window")
             self.window.connect("destroy", Gtk.main_quit)
@@ -672,6 +673,10 @@ class Module:
                 image.thumbnail((96, 96), Image.ANTIALIAS)
                 face_path = os.path.join(user.get_home_dir(), ".face")
                 try:
+                    try:
+                        os.remove(face_path)
+                    except OSError:
+                        pass
                     priv_helper.drop_privs(user)
                     image.save(face_path, "png")
                 finally:
@@ -708,9 +713,14 @@ class Module:
                 user = model[treeiter][INDEX_USER_OBJECT]
                 user.set_icon_file(path)
                 self.face_image.set_from_file(path)
+                face_path = os.path.join(user.get_home_dir(), ".face")
                 try:
+                    try:
+                        os.remove(face_path)
+                    except OSError:
+                        pass
                     priv_helper.drop_privs(user)
-                    shutil.copy(path, os.path.join(user.get_home_dir(), ".face"))
+                    shutil.copy(path, face_path)
                 finally:
                     priv_helper.restore_privs()
                 model.set_value(treeiter, INDEX_USER_PICTURE, GdkPixbuf.Pixbuf.new_from_file_at_size(path, 48, 48))
@@ -950,5 +960,6 @@ class Module:
 
 
 if __name__ == "__main__":
+    setproctitle("cinnamon-settings-users")
     module = Module()
     Gtk.main()

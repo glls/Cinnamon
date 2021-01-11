@@ -1,12 +1,10 @@
 #!/usr/bin/python3
 
-import sys
 import os
 import imtools
 import gettext
 import _thread as thread
 import subprocess
-import tempfile
 import locale
 import time
 import hashlib
@@ -18,18 +16,17 @@ from xml.etree import ElementTree
 from PIL import Image
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gio, Gtk, GObject, Gdk, Pango, GLib
+from gi.repository import Gio, Gtk, Gdk, GdkPixbuf, Pango, GLib
 
-import config
-sys.path.append(config.currentPath + "/bin")
-from GSettingsWidgets import *
+from SettingsWidgets import SidePage
+from xapp.GSettingsWidgets import *
 
 gettext.install("cinnamon", "/usr/share/locale")
 
 BACKGROUND_COLOR_SHADING_TYPES = [
-    ("solid", _("None")),
-    ("horizontal", _("Horizontal")),
-    ("vertical", _("Vertical"))
+    ("solid", _("Solid color")),
+    ("horizontal", _("Horizontal gradient")),
+    ("vertical", _("Vertical gradient"))
 ]
 
 BACKGROUND_PICTURE_OPTIONS = [
@@ -41,8 +38,6 @@ BACKGROUND_PICTURE_OPTIONS = [
     ("zoom", _("Zoom")),
     ("spanned", _("Spanned"))
 ]
-
-PICTURE_OPTIONS_NEEDS_COLOR = ("none", "scaled", "centered", "spanned")
 
 BACKGROUND_ICONS_SIZE = 100
 
@@ -98,13 +93,76 @@ def apply_orientation(im):
         pass # log.exception("Error applying EXIF Orientation tag")
     return im
 
+
+class ColorsWidget(SettingsWidget):
+    def __init__(self, size_group):
+        super(ColorsWidget, self).__init__(dep_key=None)
+
+        #gsettings
+        self.settings = Gio.Settings("org.cinnamon.desktop.background")
+
+        # settings widgets
+        combo = Gtk.ComboBox()
+        key = 'color-shading-type'
+        value = self.settings.get_string(key)
+        renderer_text = Gtk.CellRendererText()
+        combo.pack_start(renderer_text, True)
+        combo.add_attribute(renderer_text, "text", 1)
+        model = Gtk.ListStore(str, str)
+        combo.set_model(model)
+        combo.set_id_column(0)
+        for option in BACKGROUND_COLOR_SHADING_TYPES:
+            iter = model.append([option[0], option[1]])
+            if value == option[0]:
+                combo.set_active_iter(iter)
+        combo.connect('changed', self.on_combo_changed, key)
+
+        self.content_widget = Gtk.Box(valign=Gtk.Align.CENTER)
+        self.content_widget.pack_start(combo, False, False, 2)
+
+        # Primary color
+        for key in ['primary-color', 'secondary-color']:
+            color_button = Gtk.ColorButton()
+            color_button.set_use_alpha(True)
+            rgba = Gdk.RGBA()
+            rgba.parse(self.settings.get_string(key))
+            color_button.set_rgba(rgba)
+            color_button.connect('color-set', self.on_color_changed, key)
+            self.content_widget.pack_start(color_button, False, False, 2)
+
+        # Keep a ref on the second color button (so we can hide/show it when appropriate)
+        self.color2_button = color_button
+        self.color2_button.set_no_show_all(True)
+        self.show_or_hide_color2(value)
+        self.add_to_size_group(size_group)
+        self.label = SettingsLabel(_("Background color"))
+        self.pack_start(self.label, False, False, 0)
+        self.pack_end(self.content_widget, False, False, 0)
+
+    def on_color_changed(self, widget, key):
+        color_string = widget.get_color().to_string()
+        self.settings.set_string(key, color_string)
+
+    def on_combo_changed(self, widget, key):
+        tree_iter = widget.get_active_iter()
+        if tree_iter != None:
+            value = widget.get_model()[tree_iter][0]
+            self.settings.set_string(key, value)
+            self.show_or_hide_color2(value)
+
+    def show_or_hide_color2(self, value):
+        if (value == 'solid'):
+            self.color2_button.hide()
+        else:
+            self.color2_button.show()
+
 class Module:
     name = "backgrounds"
     category = "appear"
     comment = _("Change your desktop's background")
 
     def __init__(self, content_box):
-        keywords = _("background, picture, screenshot, slideshow")
+        keywords = _("background, picture, slideshow")
         self.sidePage = SidePage(_("Backgrounds"), "cs-backgrounds", keywords, content_box, module=self)
 
     def on_module_selected(self):
@@ -240,19 +298,8 @@ class Module:
             widget = GSettingsComboBox(_("Picture aspect"), "org.cinnamon.desktop.background", "picture-options", BACKGROUND_PICTURE_OPTIONS, size_group=size_group)
             settings.add_row(widget)
 
-            widget = GSettingsComboBox(_("Background gradient"), "org.cinnamon.desktop.background", "color-shading-type", BACKGROUND_COLOR_SHADING_TYPES, size_group=size_group)
-            settings.add_reveal_row(widget, "org.cinnamon.desktop.background", "picture-options", PICTURE_OPTIONS_NEEDS_COLOR)
-
-            widget = GSettingsColorChooser(_("Gradient start color"), "org.cinnamon.desktop.background", "primary-color", legacy_string=True, size_group=size_group)
-            settings.add_reveal_row(widget, "org.cinnamon.desktop.background", "picture-options", PICTURE_OPTIONS_NEEDS_COLOR)
-
-            self._background_schema.connect("changed::picture-options", self.update_secondary_revealer)
-            self._background_schema.connect("changed::color-shading-type", self.update_secondary_revealer)
-
-            widget = GSettingsColorChooser(_("Gradient end color"), "org.cinnamon.desktop.background", "secondary-color", legacy_string=True, size_group=size_group)
-            self.secondary_color_revealer = settings.add_reveal_row(widget)
-
-            self.update_secondary_revealer(self._background_schema, None)
+            widget = ColorsWidget(size_group)
+            settings.add_row(widget)
 
     def is_row_separator(self, model, iter, data):
         return model.get_value(iter, 0)
@@ -275,16 +322,16 @@ class Module:
                 if i.endswith(".xml"):
                     xml_path = os.path.join(properties_dir, i)
                     display_name = i.replace(".xml", "").replace("-", " ").replace("_", " ").split(" ")[-1].capitalize()
-                    icon = "cs-backgrounds"
+                    icon = "preferences-desktop-wallpaper-symbolic"
                     order = 10
                     # Special case for Linux Mint. We don't want to use 'start-here' here as it wouldn't work depending on the theme.
                     # Also, other distros should get equal treatment. If they define cinnamon-backgrounds and use their own distro name, we should add support for it.
                     if display_name == "Retro":
-                        icon = "cs-retro"
+                        icon = "document-open-recent-symbolic"
                         order = 20 # place retro bgs at the end
                     if display_name == "Linuxmint":
                         display_name = "Linux Mint"
-                        icon = "cs-linuxmint"
+                        icon = "linuxmint-logo-badge-symbolic"
                         order = 0
                     backgrounds.append([[False, icon, display_name, xml_path, BACKGROUND_COLLECTION_TYPE_XML], display_name, order])
 
@@ -302,13 +349,13 @@ class Module:
                 folder_path = line.strip("\n")
                 folder_name = folder_path.split("/")[-1]
                 if folder_path == self.xdg_pictures_directory:
-                    icon = "folder-pictures"
+                    icon = "folder-pictures-symbolic"
                 else:
-                    icon = "folder"
+                    icon = "folder-symbolic"
                 self.user_backgrounds.append([False, icon, folder_name, folder_path, BACKGROUND_COLLECTION_TYPE_DIRECTORY])
         else:
             # Add XDG PICTURE DIR
-            self.user_backgrounds.append([False, "folder-pictures", self.xdg_pictures_directory.split("/")[-1], self.xdg_pictures_directory, BACKGROUND_COLLECTION_TYPE_DIRECTORY])
+            self.user_backgrounds.append([False, "folder-pictures-symbolic", self.xdg_pictures_directory.split("/")[-1], self.xdg_pictures_directory, BACKGROUND_COLLECTION_TYPE_DIRECTORY])
             self.update_folder_list()
 
     def format_source(self, type, path):
@@ -395,9 +442,9 @@ class Module:
                     self.add_folder_dialog.hide()
                     return
             if folder_path == self.xdg_pictures_directory:
-                icon = "folder-pictures"
+                icon = "folder-pictures-symbolic"
             else:
-                icon = "folder"
+                icon = "folder-symbolic"
             self.user_backgrounds.append([False, icon, folder_name, folder_path, BACKGROUND_COLLECTION_TYPE_DIRECTORY])
             self.collection_store.append([False, icon, folder_name, folder_path, BACKGROUND_COLLECTION_TYPE_DIRECTORY])
             self.update_folder_list()
@@ -514,18 +561,6 @@ class Module:
             print("Could not parse %s!" % filename)
             print(detail)
             return []
-
-    def update_secondary_revealer(self, settings, key):
-        show = False
-
-        if settings.get_string("picture-options") in PICTURE_OPTIONS_NEEDS_COLOR:
-            #the picture is taking all the width
-            if settings.get_string("color-shading-type") != "solid":
-                #it is using a gradient, so need to show
-                show = True
-
-        self.secondary_color_revealer.set_reveal_child(show)
-
 
 class PixCache(object):
 
@@ -756,7 +791,7 @@ class ThreadedIconView(Gtk.IconView):
                     if backgroundNode.tag == "static":
                         for staticNode in backgroundNode:
                             if staticNode.tag == "file":
-                                if staticNode[-1].tag == "size":
+                                if len(staticNode) > 0 and staticNode[-1].tag == "size":
                                     return staticNode[-1].text
                                 return staticNode.text
             print("Could not find filename in %s" % filename)

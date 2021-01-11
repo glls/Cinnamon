@@ -1,11 +1,18 @@
 {
-    "display_type": {
+    "display-type": {
         "type": "combobox",
-        "description": "Type of display",
         "default": "visual",
-        "options" : {
+        "description": "Type of display",
+        "tooltip": "Note that the visual representation will only work if your panel is large enough to display it properly, otherwise the simple style will be used.",
+        "options": {
             "A visual representation of the workspaces": "visual",
             "Simple buttons": "buttons"
         }
+    },
+    "reverse-scrolling": {
+        "type": "switch",
+        "default": false,
+        "description": "Reverse scrolling direction",
+        "tooltip": "Reverse the direction of the scroll in the workspace list."
     }
 }
