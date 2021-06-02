@@ -267,6 +267,7 @@ class AppMenuButton {
         this.alert = alert;
         this.labelVisible = false;
         this._signals = new SignalManager.SignalManager();
+        this.xid = metaWindow.get_xwindow();
 
         if (this._applet.orientation == St.Side.TOP)
             this.actor.add_style_class_name('top');
@@ -945,6 +946,7 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
             });
         }
         this.addMenuItem(item);
+        item.setSensitive(mw.can_maximize())
 
         item = new PopupMenu.PopupIconMenuItem(_("Close"), "edit-delete", St.IconType.SYMBOLIC);
         this._signals.connect(item, 'activate', function() {
@@ -1018,6 +1020,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this.settings.bind("window-preview", "usePreview", this._onPreviewChanged);
         this.settings.bind("window-preview-show-label", "showLabel", this._onPreviewChanged);
         this.settings.bind("window-preview-scale", "previewScale", this._onPreviewChanged);
+        this.settings.bind("last-window-order", "lastWindowOrder", null);
 
         this.signals.connect(global.screen, 'window-added', this._onWindowAddedAsync, this);
         this.signals.connect(global.screen, 'window-monitor-changed', this._onWindowMonitorChanged, this);
@@ -1263,6 +1266,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
             }
         }
 
+        this.refreshing = true;
 
         for (let window of windows) {
             if (this._shouldAdd(window))
@@ -1270,6 +1274,10 @@ class CinnamonWindowListApplet extends Applet.Applet {
             else
                 this._removeWindow(window);
         }
+
+        this.refreshing = false;
+
+        this._applySavedOrder();
     }
 
     _addWindow(metaWindow, alert) {
@@ -1297,6 +1305,8 @@ class CinnamonWindowListApplet extends Applet.Applet {
                 }
             }
         }
+
+        this._saveOrder();
     }
 
     _removeWindow(metaWindow) {
@@ -1308,12 +1318,60 @@ class CinnamonWindowListApplet extends Applet.Applet {
                 this._windows.splice(i, 1);
             }
         }
+
+        this._saveOrder();
     }
 
     _shouldAdd(metaWindow) {
         return Main.isInteresting(metaWindow) &&
             !metaWindow.is_skip_taskbar() &&
             this._monitorWatchList.indexOf(metaWindow.get_monitor()) != -1;
+    }
+
+    /* Store by Windows (XIDs), a simple list
+       xid::xid::xid::xid::xid
+    */
+
+    _applySavedOrder() {
+        let order = this.lastWindowOrder.split("::");
+
+        order.reverse();
+
+        for (let i = 0; i < order.length; i++) {
+            let xid = parseInt(order[i]);
+
+            if (xid === NaN) {
+                continue;
+            }
+
+            let found = this._windows.find(win => (win.xid == xid));
+
+            if (found) {
+                this.manager_container.set_child_at_index(found.actor, 0);
+            }
+        }
+
+        this._saveOrder();
+    }
+
+    _saveOrder() {
+        if (this.refreshing) {
+            return;
+        }
+
+        let new_order = [];
+        let actors = this.manager_container.get_children();
+
+        for (let i = 0; i < actors.length; i++) {
+            new_order.push(actors[i]._delegate.xid);
+        }
+
+        if (new_order.length === 0) {
+            this.lastWindowOrder = "";
+            return;
+        }
+
+        this.lastWindowOrder = new_order.join("::");
     }
 
     handleDragOver(source, actor, x, y, time) {
@@ -1329,6 +1387,8 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this._dragPlaceholderPos = -1;
         let minDist = -1;
         for(let i = 0; i < children.length; i++) {
+            if (!children[i].visible)
+                continue;
             let dist = Math.abs(axis[0] - (children[i].get_allocation_box()[axis[1]] + children[i].width / 2));
             if(dist < minDist || minDist == -1) {
                 minDist = dist;
@@ -1357,6 +1417,8 @@ class CinnamonWindowListApplet extends Applet.Applet {
         if (this._dragPlaceholderPos == undefined) return false;
 
         this.manager_container.set_child_at_index(source.actor, this._dragPlaceholderPos);
+
+        this._saveOrder();
 
         return true;
     }

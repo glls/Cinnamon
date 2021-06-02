@@ -25,12 +25,14 @@
         "menu-layout" : {
             "type" : "section",
             "title" : "Layout and content",
-            "keys" : ["show-category-icons", "category-icon-size", "show-application-icons", "application-icon-size", "favbox-show", "fav-icon-size", "favbox-min-height", "show-places", "show-recents", "menu-editor-button"]
+            "keys" : ["restrict-menu-height", "menu-height", "show-category-icons",
+                      "category-icon-size", "show-application-icons", "application-icon-size",
+                      "favbox-show", "fav-icon-size", "show-places", "show-recents", "menu-editor-button"]
         },
         "menu-behave" : {
             "type" : "section",
             "title" : "Behavior",
-            "keys" : ["enable-autoscroll", "search-filesystem"]
+            "keys" : ["category-hover", "enable-autoscroll", "search-filesystem"]
         }
     },
  "overlay-key" : {
@@ -50,8 +52,7 @@
     "description" : "Icon",
     "tooltip" : "Select an icon to show in the panel.",
     "default_icon" : "cinnamon-symbolic",
-    "dependency" : "menu-custom",
-    "indent" : true
+    "dependency" : "menu-custom"
  },
  "menu-icon-size" : {
     "type": "spinbutton",
@@ -61,27 +62,30 @@
     "step" : 1,
     "units" : "px",
     "description" : "Icon size",
-    "dependency" : "menu-custom",
-    "indent" : true
+    "dependency" : "menu-custom"
  },
  "menu-label" : {
     "type" : "entry",
     "default" : "Menu",
     "description" : "Text",
     "tooltip" : "Enter custom text to show in the panel.",
-    "dependency" : "menu-custom",
-    "indent": true
+    "dependency" : "menu-custom"
  },
- "favbox-min-height" : {
+ "restrict-menu-height" : {
+    "type": "switch",
+    "default" : false,
+    "description" : "Use a fixed menu height",
+    "tooltip" : "Keep the size of the menu the same now matter how many favorites or categories there are."
+ },
+ "menu-height" : {
     "type": "spinbutton",
-    "default" : 300,
-    "min" : 50,
-    "max" : 1000,
+    "default" : 550,
+    "min" : 300,
+    "max" : 2000,
     "step" : 10,
     "units" : "px",
-    "dependency" : "favbox-show",
-    "description" : "Minimum height of the favorites section",
-    "tooltip" : "The minimum size allocated for the favorites section (this has an impact on the overall height of the menu)."
+    "description" : "Menu height",
+    "dependency" : "restrict-menu-height"
  },
  "show-category-icons" : {
     "type" : "switch",
@@ -97,8 +101,7 @@
     "step" : 1,
     "units" : "px",
     "description" : "Categories icon size",
-    "dependency" : "show-category-icons",
-    "indent" : true
+    "dependency" : "show-category-icons"
  },
  "show-application-icons" : {
     "type" : "switch",
@@ -114,8 +117,7 @@
     "step" : 1,
     "units" : "px",
     "description" : "Applications icon size",
-    "dependency" : "show-application-icons",
-    "indent" : true
+    "dependency" : "show-application-icons"
  },
  "favbox-show" : {
     "type" : "switch",
@@ -131,8 +133,7 @@
     "step" : 1,
     "units" : "px",
     "description" : "Favorites icon size",
-    "dependency" : "favbox-show",
-    "indent" : true
+    "dependency" : "favbox-show"
  },
  "show-favorites" : {
    "type" : "switch",
@@ -151,6 +152,12 @@
    "default" : true,
    "description": "Show recents",
    "tooltip": "Choose whether or not to show recents in the menu."
+ },
+ "category-hover" : {
+    "type" : "switch",
+    "default" : true,
+    "description": "Change categories on hover",
+    "tooltip": "Choose whether or not to change categories by hovering."
  },
 "enable-autoscroll" : {
     "type" : "switch",

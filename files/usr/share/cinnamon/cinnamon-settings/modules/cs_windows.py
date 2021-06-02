@@ -36,7 +36,7 @@ class Module:
 
             button_options = []
             button_options.append([":minimize,maximize,close", _("Right")])
-            button_options.append(["close,minimize,maximize:", _("Left")])
+            button_options.append(["close,maximize,minimize:", _("Left")])
             button_options.append([":close", _("Gnome")])
             button_options.append(["close:minimize,maximize", _("Classic Mac")])
 
@@ -89,9 +89,6 @@ class Module:
             widget.revealer.settings.bind_with_mapping("focus-mode", widget.revealer, "reveal-child", Gio.SettingsBindFlags.GET, lambda x: x in ("sloppy", "mouse"), None)
 
             widget = GSettingsSwitch(_("Bring windows which require attention to the current workspace"), "org.cinnamon", "bring-windows-to-current-workspace")
-            settings.add_row(widget)
-
-            widget = GSettingsSwitch(_("Prevent windows which require attention from stealing focus"), "org.cinnamon", "prevent-focus-stealing")
             settings.add_row(widget)
 
             stealing_options = [["smart", _("Smart")], ["strict", _("Strict")]]

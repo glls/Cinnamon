@@ -77,6 +77,9 @@ const CinnamonIface =
                 <arg type="s" direction="in" /> \
             </method> \
             <method name="induceSegfault" /> \
+            <method name="leakMemory"> \
+                <arg type="i" direction="in" name="mb" /> \
+            </method> \
             <method name="switchWorkspaceRight" /> \
             <method name="switchWorkspaceLeft" /> \
             <method name="switchWorkspaceUp" /> \
@@ -121,6 +124,7 @@ const CinnamonIface =
                 <arg type="b" direction="in" name="show_osd" /> \
             </method> \
             <signal name="RunStateChanged"/> \
+            <signal name="XletsLoadedComplete"/> \
         </interface> \
     </node>';
 
@@ -365,6 +369,10 @@ CinnamonDBus.prototype = {
         global.segfault();
     },
 
+    leakMemory: function(mb) {
+        global.alloc_leak(mb);
+    },
+
     switchWorkspaceLeft: function() {
         Main.wm.actionMoveWorkspaceLeft();
     },
@@ -466,6 +474,10 @@ CinnamonDBus.prototype = {
 
     EmitMonitorsChanged: function() {
         this._dbusImpl.emit_signal('MonitorsChanged', null);
+    },
+
+    EmitXletsLoadedComplete: function() {
+        this._dbusImpl.emit_signal('XletsLoadedComplete', null);
     },
 
     CinnamonVersion: Config.PACKAGE_VERSION

@@ -10,8 +10,6 @@ try:
     import html
     import subprocess
     import threading
-    import time
-    import dbus
     from PIL import Image
     import datetime
     import proxygsettings
@@ -163,7 +161,6 @@ class Spice_Harvester(GObject.Object):
         else:
             self.settings = Gio.Settings.new('org.cinnamon')
             self.enabled_key = 'enabled-%ss' % self.collection_type
-        self.settings.connect('changed::%s' % self.enabled_key, self._update_status)
 
         if self.themes:
             self.install_folder = '%s/.themes/' % (home)
@@ -171,6 +168,9 @@ class Spice_Harvester(GObject.Object):
         else:
             self.install_folder = '%s/.local/share/cinnamon/%ss/' % (home, self.collection_type)
             self.spices_directories = ('/usr/share/cinnamon/%ss/' % self.collection_type, self.install_folder)
+            self.settings.connect('changed::%s' % self.enabled_key, self._update_status)
+
+        self._update_status()
 
         self._load_metadata()
 
@@ -191,8 +191,8 @@ class Spice_Harvester(GObject.Object):
         try:
             Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
                                       'org.Cinnamon', '/org/Cinnamon', 'org.Cinnamon', None, self._on_proxy_ready, None)
-        except dbus.exceptions.DBusException as e:
-            print(e)
+        except GLib.Error as e:
+            print(e.message)
 
     def _on_proxy_ready (self, object, result, data=None):
         try:
@@ -214,6 +214,9 @@ class Spice_Harvester(GObject.Object):
             if self._proxy.GetRunState() == 2:
                 self.send_deferred_proxy_calls()
                 return
+
+        if signal_name == "XletsLoadedComplete":
+            self._update_status()
 
         for name, callback in self._proxy_signals:
             if signal_name == name:
@@ -393,7 +396,8 @@ class Spice_Harvester(GObject.Object):
             else:
                 connection = HTTPSConnection(host, timeout=15)
             headers = { "Accept-Encoding": "identity", "Host": host, "User-Agent": "Python/3" }
-            connection.request("GET", parsed_url.path, headers=headers)
+            full_path = "%s?%s" % (parsed_url.path, parsed_url.query)
+            connection.request("GET", full_path, headers=headers)
             urlobj = connection.getresponse()
             assert urlobj.getcode() == 200
 
@@ -580,12 +584,8 @@ class Spice_Harvester(GObject.Object):
         self.download_total_files = 0
         self.download_current_file = 0
         self.is_downloading_image_cache = False
-        self.settings.set_int('%s-cache-updated' % self.collection_type, time.time())
         self._advance_queue()
         self.emit('cache-loaded')
-
-    def get_cache_age(self):
-        return (time.time() - self.settings.get_int('%s-cache-updated' % self.collection_type)) / 86400
 
     # checks for corrupt images in the cache so we can redownload them the next time we refresh
     def _is_bad_image(self, path):

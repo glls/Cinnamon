@@ -1,4 +1,4 @@
-project('Cinnamon', 'c', version : '4.8.5', meson_version : '>=0.46.0')
+project('Cinnamon', 'c', version : '5.0.1', meson_version : '>=0.46.0')
 
 gnome = import('gnome')
 i18n = import('i18n')
@@ -36,8 +36,6 @@ gio_unix = dependency('gio-unix-2.0')
 gl = dependency('gl')
 glib_version = '2.52.0'
 glib = dependency('glib-2.0', version: '>= ' + glib_version)
-gstreamer = dependency('gstreamer-1.0')
-gstreamer_base = dependency('gstreamer-base-1.0')
 gtk = dependency('gtk+-3.0', version: '>= 3.12.0')
 muffin = dependency('libmuffin', version: '>= 4.0.3')
 muffinlibdir = muffin.get_pkgconfig_variable('typelibdir')
@@ -53,6 +51,14 @@ if has_nm
     dependency('libnm')
 endif
 
+if get_option('build_recorder')
+	gstreamer = dependency('gstreamer-1.0')
+	gstreamer_base = dependency('gstreamer-base-1.0')
+else
+	gstreamer = dependency('', required: false)
+	gstreamer_base = dependency('', required: false)
+endif
+
 # on some systems we need to find the math lib to make sure it builds
 cc = meson.get_compiler('c')
 math = cc.find_library('m', required: false)
@@ -64,6 +70,30 @@ python = find_program('python3')
 cinnamon_conf = configuration_data()
 cinnamon_conf.set_quoted('VERSION', version)
 cinnamon_conf.set_quoted('GETTEXT_PACKAGE', meson.project_name().to_lower())
+
+have_xfixes = cc.has_function('XFixesCreatePointerBarrier', dependencies: xfixes)
+if have_xfixes
+    cinnamon_conf.set10('HAVE_XFIXESCREATEPOINTERBARRIER', true)
+endif
+
+have_mallinfo = cc.has_function('mallinfo', prefix: '#include <malloc.h>')
+if have_mallinfo
+    cinnamon_conf.set10('HAVE_MALLINFO', true)
+endif
+
+langinfo_test = '''
+#include <langinfo.h>
+int main () {
+    nl_langinfo(_NL_TIME_FIRST_WEEKDAY);
+}
+'''
+have_nl_time_first_weekday = cc.compiles(
+    langinfo_test,
+    name : 'langinfo _NL_TIME_FIRST_WEEKDAY check')
+
+if have_nl_time_first_weekday
+    cinnamon_conf.set10('HAVE__NL_TIME_FIRST_WEEKDAY', true)
+endif
 
 config_h_file = configure_file(
     output : 'config.h',

@@ -11,7 +11,7 @@ const Clutter = imports.gi.Clutter;
 class WindowMenuItem extends PopupMenu.PopupBaseMenuItem {
     constructor(icon, label, params) {
         super(params);
-        this.box = new St.BoxLayout({ style_class: 'popup-combobox-item' });
+        this.box = new St.BoxLayout({ style_class: 'popup-combobox-item', style: 'padding: 0px;' });
         this.icon = icon;
 
         if (icon) {
@@ -42,7 +42,6 @@ class CinnamonWindowsQuickListApplet extends Applet.IconApplet {
 
         this.scrollBox = new St.ScrollView({ x_fill: true, y_fill: false, y_align: St.Align.START });
         this.scrollBox.set_auto_scrolling(true);
-        this.scrollBox.set_height(400);
         this.mainContainer.add(this.scrollBox);
 
         this.windowsBox = new St.BoxLayout({ vertical:true });

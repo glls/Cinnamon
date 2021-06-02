@@ -24,9 +24,8 @@
 
     <key name="extension-cache-updated" type="i">
       <default>0</default>
-      <summary>Timestamp of last cache refresh</summary>
+      <summary>[not used - obsolete]</summary>
       <description>
-        The timestamp of the last time the index cache was updated from the spices website
       </description>
     </key>
 
@@ -42,9 +41,8 @@
 
     <key name="applet-cache-updated" type="i">
       <default>0</default>
-      <summary>Timestamp of last cache refresh</summary>
+      <summary>[not used - obsolete]</summary>
       <description>
-        The timestamp of the last time the index cache was updated from the spices website
       </description>
     </key>
 
@@ -71,9 +69,8 @@
 
     <key name="desklet-cache-updated" type="i">
       <default>0</default>
-      <summary>Timestamp of last cache refresh</summary>
+      <summary>[not used - obsolete]</summary>
       <description>
-        The timestamp of the last time the index cache was updated from the spices website
       </description>
     </key>
 
@@ -524,9 +521,9 @@
 
     <key name="prevent-focus-stealing" type="b">
       <default>false</default>
-      <summary>Prevents windows that request user attention from stealing focus</summary>
+      <summary>[unused] Prevents windows that request user attention from stealing focus</summary>
       <description>
-        When enabled, even if a window requires attention, it is not activated.
+        This setting is no longer used.
       </description>
     </key>
 
@@ -589,6 +586,7 @@
     <child name="keyboard" schema="org.cinnamon.keyboard"/>
     <child name="desklets" schema="org.cinnamon.desklets" />
     <child name="sounds" schema="org.cinnamon.sounds" />
+    <child name="launcher" schema="org.cinnamon.launcher" />
 
     <key name="enable-vfade" type="b">
       <default>true</default>
@@ -620,7 +618,7 @@
     </key>
 
     <key type="as" name="demands-attention-ignored-wm-classes">
-      <default>["skype", "viber", "quassel", "retroshare", "psi-plus", "kadu", "pidgin"]</default>
+      <default>[]</default>
       <summary>WM class names to skip processing for in windowAttentionHandler.js</summary>
     </key>
 
@@ -654,9 +652,8 @@
 
     <key name="theme-cache-updated" type="i">
       <default>0</default>
-      <summary>Timestamp of last cache refresh</summary>
+      <summary>[not used - obsolete]</summary>
       <description>
-        The timestamp of the last time the index cache was updated from the spices website
       </description>
     </key>
 
@@ -1007,6 +1004,28 @@
   </schema>
 
   <schema id="org.cinnamon.invalid-schema" path="/org/cinnamon/invalid-schema/">
+  </schema>
+
+  <schema id="org.cinnamon.launcher" path="/org/cinnamon/launcher/">
+
+    <key name="memory-limit-enabled" type="b">
+      <default>true</default>
+      <summary>Whether to restart Cinnamon when it reachs the memory limit</summary>
+      <description></description>
+    </key>
+
+    <key name="memory-limit" type="i">
+      <default>2048</default>
+      <summary>Memory limit (in MB)</summary>
+      <description></description>
+    </key>
+
+    <key name="check-frequency" type="i">
+      <default>300</default>
+      <summary>Time between each checks (in seconds)</summary>
+      <description></description>
+    </key>
+
   </schema>
 
 </schemalist>

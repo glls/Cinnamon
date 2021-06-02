@@ -106,7 +106,7 @@ var subprocess_callbacks = {};
 function spawn_async(args, callback) {
     subprocess_id++;
     subprocess_callbacks[subprocess_id] = callback;
-    spawn(new Array("cinnamon-subprocess-wrapper", subprocess_id.toString()).concat(args));
+    spawn(["cinnamon-subprocess-wrapper", subprocess_id.toString(), ...args]);
 }
 
 /**
@@ -734,7 +734,7 @@ function getGObjectPropertyValues(obj, r = 0) {
     let baseInfo = repository.find_by_gtype(obj.constructor.$gtype);
     let propertyNames = [];
     for (let info = baseInfo; info !== null; info = Gir.object_info_get_parent(info)) {
-        propertyNames = propertyNames.concat(_getWritablePropertyNamesForObjectInfo(info));
+        propertyNames = [...propertyNames, ..._getWritablePropertyNamesForObjectInfo(info)];
     }
     if (r > 0 && propertyNames.length === 0) {
         return obj.toString();
@@ -753,4 +753,32 @@ function getGObjectPropertyValues(obj, r = 0) {
         }
     }
     return jsRepresentation;
+}
+
+function version_exceeds(version, min_version) {
+    let our_version = version.split(".");
+    let cmp_version = min_version.split(".");
+    let i;
+
+    for (i = 0; i < our_version.length && i < cmp_version.length; i++) {
+        let our_part = parseInt(our_version[i]);
+        let cmp_part = parseInt(cmp_version[i]);
+
+        if (isNaN(our_part) || isNaN(cmp_part)) {
+            return false;
+        }
+
+        if (our_part < cmp_part) {
+            return false;
+        } else
+        if (our_part > cmp_part) {
+            return true;
+        }
+    }
+
+    if (our_version.length < cmp_version.length) {
+        return false;
+    } else {
+        return true;
+    }
 }

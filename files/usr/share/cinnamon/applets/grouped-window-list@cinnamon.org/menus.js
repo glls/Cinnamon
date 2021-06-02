@@ -180,7 +180,7 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
                 let defualtPlaces = this.listDefaultPlaces();
                 let bookmarks = this.listBookmarks();
                 let devices = this.listDevices();
-                let places = defualtPlaces.concat(bookmarks).concat(devices);
+                let places = [...defualtPlaces, ...bookmarks, ...devices];
                 let handlePlaceLaunch = (item, i) => {
                     this.signals.connect(item, 'activate', () => places[i].launch());
                 };
@@ -352,6 +352,7 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
                 });
             }
             this.addMenuItem(item);
+            item.setSensitive(this.groupState.lastFocused.can_maximize());
 
             if (this.groupState.metaWindows && this.groupState.metaWindows.length > 1) {
                 // Close others

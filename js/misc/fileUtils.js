@@ -41,7 +41,7 @@ function listDirAsync(file, callback) {
         function onNextFileComplete(obj, res) {
             let files = obj.next_files_finish(res);
             if (files.length) {
-                allFiles = allFiles.concat(files);
+                allFiles = [...allFiles, ...files];
                 enumerator.next_files_async(100, GLib.PRIORITY_LOW, null, onNextFileComplete);
             } else {
                 enumerator.close(null);
@@ -262,14 +262,14 @@ function requireModule(path, dir, meta, type, async = false, returnIndex = false
     if (path[0] === '.' || path[0] !== '/') {
         path = path.replace(/\.\//g, '');
         if (dir) {
-            path = `${dir}/${path}`;
+            path = dir + "/" + path;
         }
     }
     let success, JSbytes, JS;
     let file = Gio.File.new_for_commandline_arg(path);
     let fileLoadErrorMessage = '[requireModule] Unable to load file contents.';
     if (!file.query_exists(null)) {
-        throw new Error(`[requireModule] Path does not exist.\n${path}`);
+        throw new Error("[requireModule] Path does not exist.\n" + path);
     }
 
     if (!async) {
